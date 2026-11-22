@@ -448,6 +448,21 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       background: var(--accent);
       color: #fff;
     }
+    .zoom-btn {
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: var(--color-info);
+      padding: 0.15rem 0.5rem;
+      border-radius: 3px;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .zoom-btn:hover {
+      background: rgba(56, 189, 248, 0.22);
+      border-color: var(--color-info);
+    }
     .chart-legend {
       display: flex;
       gap: 0.75rem;
@@ -1033,7 +1048,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
               <button class="chart-type-btn active" id="btn-chart-bars" onclick="setChartType('bars')">Bars</button>
               <button class="chart-type-btn" id="btn-chart-area" onclick="setChartType('area')">Area</button>
             </div>
-            <button class="btn-ghost" id="zoom-reset-btn" style="display:none; font-family:var(--mono); font-size:0.65rem;" onclick="resetZoom()">Reset Zoom</button>
+            <button class="zoom-btn" id="zoom-reset-btn" style="display:none;" onclick="resetZoom()">Reset Zoom</button>
           </div>
         </div>
 
@@ -1485,23 +1500,92 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       chartTooltip.style.display = 'none';
     });
 
-    chartCanvas.addEventListener('click', (e) => {
+    let wheelZoomTimer = null;
+
+    // Zoom via mouse wheel when focused/hovering over chart
+    chartCanvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
       if (!histBuckets.length) return;
+
       const rect = chartCanvas.getBoundingClientRect();
       const plotLeft = 35;
-      const mouseX = e.clientX - rect.left;
-      if (mouseX < plotLeft) return;
-
       const plotWidth = rect.width - plotLeft;
-      const bucketIdx = Math.floor(((mouseX - plotLeft) / plotWidth) * histBuckets.length);
-      const b = histBuckets[bucketIdx];
-      if (b) {
-        const stepMs = (histBuckets.length > 1) ? (histBuckets[1].timestamp - histBuckets[0].timestamp) : 60000;
-        zoomRange = { from: b.timestamp, to: b.timestamp + stepMs };
-        document.getElementById('zoom-reset-btn').style.display = 'inline-block';
-        executeSearch();
+      if (plotWidth <= 0) return;
+
+      const mouseX = Math.max(plotLeft, Math.min(rect.width, e.clientX - rect.left));
+      const ratio = Math.max(0, Math.min(1, (mouseX - plotLeft) / plotWidth));
+
+      const timeVal = document.getElementById('time-select').value;
+      const baseBounds = getTimeBounds(timeVal);
+
+      const stepMs = (histBuckets.length > 1) ? (histBuckets[1].timestamp - histBuckets[0].timestamp) : 60000;
+      let curFrom, curTo;
+      if (zoomRange) {
+        curFrom = zoomRange.from;
+        curTo = zoomRange.to;
+      } else if (baseBounds.from > 0 && baseBounds.to > 0) {
+        curFrom = baseBounds.from;
+        curTo = baseBounds.to;
+      } else {
+        curFrom = histBuckets[0].timestamp;
+        curTo = histBuckets[histBuckets.length - 1].timestamp + stepMs;
       }
-    });
+
+      const curSpan = Math.max(1000, curTo - curFrom);
+      const cursorTs = curFrom + ratio * curSpan;
+
+      const zoomIn = e.deltaY < 0;
+      const factor = zoomIn ? 0.75 : 1.33;
+      let newSpan = curSpan * factor;
+
+      // Minimum zoom limit: 5 seconds
+      if (newSpan < 5000) {
+        if (zoomIn && curSpan <= 5000) return;
+        newSpan = 5000;
+      }
+
+      // Max span when zooming out
+      let maxSpan = 7 * 24 * 3600 * 1000;
+      if (timeVal !== 'all' && baseBounds.from > 0 && baseBounds.to > 0 && !zoomRange) {
+        maxSpan = baseBounds.to - baseBounds.from;
+      } else if (histBuckets.length > 0) {
+        maxSpan = Math.max(60000, (histBuckets[histBuckets.length - 1].timestamp - histBuckets[0].timestamp) + stepMs * 2);
+      }
+
+      if (!zoomIn && newSpan >= maxSpan) {
+        resetZoom();
+        return;
+      }
+
+      let newFrom = Math.round(cursorTs - ratio * newSpan);
+      let newTo = Math.round(cursorTs + (1 - ratio) * newSpan);
+
+      // Clamp upper bound to now + 60s
+      const maxAllowedTo = Date.now() + 60 * 1000;
+      if (newTo > maxAllowedTo) {
+        const diff = newTo - maxAllowedTo;
+        newTo = maxAllowedTo;
+        newFrom = Math.max(0, newFrom - diff);
+      }
+      if (newFrom < 0) newFrom = 0;
+
+      zoomRange = { from: newFrom, to: newTo };
+      document.getElementById('zoom-reset-btn').style.display = 'inline-block';
+
+      // Update chart meta indicator in real time
+      const meta = document.getElementById('chart-meta');
+      if (meta) {
+        const durSec = Math.round((newTo - newFrom) / 1000);
+        const durStr = durSec >= 3600 ? `${(durSec / 3600).toFixed(1)}h` : (durSec >= 60 ? `${Math.round(durSec / 60)}m` : `${durSec}s`);
+        meta.innerText = `[Zoom: ${durStr} | Wheel: Zoom, Reset button to exit]`;
+      }
+
+      // Debounce API query so rapid mouse wheel scrolling remains buttery smooth
+      clearTimeout(wheelZoomTimer);
+      wheelZoomTimer = setTimeout(() => {
+        executeSearch(true);
+      }, 150);
+    }, { passive: false });
 
     window.addEventListener('resize', renderChart);
 
@@ -1938,6 +2022,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       } else if (e.key === '?') {
         openShortcutsModal();
       } else if (e.key === 'Escape') {
+        if (zoomRange) resetZoom();
         closeTraceModal();
         closeContextModal();
         closeShortcutsModal();

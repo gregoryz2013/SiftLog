@@ -29,6 +29,9 @@ std::string ApiServer::get_client_ip(const httplib::Request& req) {
 }
 
 void ApiServer::setup_routes() {
+    // Limit request payload to 50MB to prevent memory exhaustion / DoS attacks
+    svr_.set_payload_max_length(50 * 1024 * 1024);
+
     svr_.Options(".*", [](const httplib::Request&, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");

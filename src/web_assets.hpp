@@ -1,0 +1,794 @@
+#pragma once
+#include <string_view>
+
+inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SiftLog - Log Engine</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #111827;
+      --card-border: #1f2937;
+      --header-bg: #111827;
+      --text: #f9fafb;
+      --text-muted: #9ca3af;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --info: #3b82f6;
+      --warn: #d97706;
+      --error: #dc2626;
+      --debug: #7c3aed;
+      --success: #059669;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 13px;
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--card-border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 0.6rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: -0.01em;
+    }
+    .badge-engine {
+      background: #1e293b;
+      color: #94a3b8;
+      border: 1px solid #334155;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+
+    .stats-bar {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+    }
+    .stat-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+    .stat-val {
+      font-family: var(--mono);
+      font-weight: 600;
+      font-size: 0.82rem;
+      color: var(--text);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .live-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.78rem;
+      cursor: pointer;
+      user-select: none;
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      padding: 0.35rem 0.65rem;
+      border-radius: 5px;
+      transition: background 0.15s;
+    }
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .live-active .pulse-dot {
+      background: var(--success);
+      box-shadow: 0 0 6px var(--success);
+    }
+
+    .container {
+      max-width: 1600px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 1rem 1.25rem;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .alert-banner {
+      display: none;
+      background: rgba(220, 38, 38, 0.1);
+      border: 1px solid rgba(220, 38, 38, 0.3);
+      border-radius: 6px;
+      padding: 0.6rem 0.85rem;
+      color: #fca5a5;
+      font-size: 0.8rem;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .alert-banner.active {
+      display: flex;
+    }
+
+    .filter-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+    .search-row {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .search-input-wrapper {
+      position: relative;
+      flex: 1;
+    }
+    .search-input-wrapper input {
+      width: 100%;
+      background: #0b0f19;
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 5px;
+      outline: none;
+    }
+    .search-input-wrapper input:focus {
+      border-color: var(--accent);
+    }
+
+    .btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      padding: 0.5rem 0.9rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn-secondary {
+      background: #1e293b;
+      color: var(--text);
+    }
+    .btn-secondary:hover { background: #334155; }
+
+    .filters-secondary {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.65rem;
+    }
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .filter-label {
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    select {
+      background: #0b0f19;
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 0.3rem 0.55rem;
+      border-radius: 5px;
+      font-size: 0.78rem;
+      outline: none;
+    }
+    select:focus {
+      border-color: var(--accent);
+    }
+
+    .level-pills {
+      display: flex;
+      gap: 0.25rem;
+      background: #0b0f19;
+      padding: 2px;
+      border-radius: 5px;
+      border: 1px solid var(--card-border);
+    }
+    .level-pill {
+      padding: 0.2rem 0.5rem;
+      font-size: 0.7rem;
+      font-weight: 600;
+      border-radius: 3px;
+      cursor: pointer;
+      user-select: none;
+      color: var(--text-muted);
+    }
+    .level-pill.active {
+      background: #1e293b;
+      color: #fff;
+    }
+    .level-pill[data-lvl="ERROR"].active { background: #7f1d1d; color: #fca5a5; }
+    .level-pill[data-lvl="WARN"].active { background: #78350f; color: #fde68a; }
+    .level-pill[data-lvl="INFO"].active { background: #1e3a8a; color: #93c5fd; }
+
+    .results-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      padding: 0 0.15rem;
+    }
+
+    .logs-container {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      overflow: hidden;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .logs-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+    }
+    .logs-table th {
+      background: #0d1322;
+      text-align: left;
+      padding: 0.45rem 0.75rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .logs-table td {
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid #182234;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+    .log-row {
+      cursor: pointer;
+    }
+    .log-row:hover {
+      background: #151e32;
+    }
+    .log-row.expanded {
+      background: #17233b;
+    }
+
+    .cell-time {
+      color: #64748b;
+      width: 165px;
+    }
+    .cell-level {
+      width: 75px;
+    }
+    .cell-service {
+      width: 130px;
+    }
+    .cell-msg {
+      white-space: normal !important;
+      word-break: break-all;
+      color: #e2e8f0;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    .badge-INFO { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+    .badge-WARN { background: rgba(217, 119, 6, 0.15); color: #f59e0b; }
+    .badge-ERROR { background: rgba(220, 38, 38, 0.15); color: #f87171; }
+    .badge-DEBUG { background: rgba(124, 58, 237, 0.15); color: #c084fc; }
+    .badge-FATAL { background: rgba(220, 38, 38, 0.3); color: #fca5a5; }
+    .service-pill {
+      background: #1e293b;
+      color: #94a3b8;
+      border: 1px solid #334155;
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+      font-size: 0.7rem;
+    }
+
+    .details-row td {
+      padding: 0 !important;
+      background: #090e17;
+      border-bottom: 2px solid var(--accent);
+    }
+    .details-box {
+      padding: 0.75rem 0.85rem;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+    }
+    .details-box pre {
+      background: #0b0f19;
+      border: 1px solid var(--card-border);
+      border-radius: 5px;
+      padding: 0.65rem;
+      overflow-x: auto;
+      color: #38bdf8;
+    }
+    .details-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 0.4rem;
+      gap: 0.5rem;
+    }
+
+    .empty-state {
+      padding: 3rem 1rem;
+      text-align: center;
+      color: var(--text-muted);
+    }
+
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal-box {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      width: 90%;
+      max-width: 580px;
+      padding: 1.25rem;
+    }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.85rem;
+    }
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 1.2rem;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <span>SiftLog</span>
+      <span class="badge-engine">Zstd Storage</span>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat-item">
+        <span class="stat-label">Ingested</span>
+        <span class="stat-val" id="stat-total-logs">0</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Disk (Compressed)</span>
+        <span class="stat-val" id="stat-disk-size">0 KB</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Ratio</span>
+        <span class="stat-val" id="stat-ratio">0.0x</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Chunks</span>
+        <span class="stat-val" id="stat-chunks">0</span>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <div class="live-toggle" id="live-toggle" onclick="toggleLiveTail()">
+        <span class="pulse-dot"></span>
+        <span id="live-text">Live: OFF</span>
+      </div>
+      <button class="btn btn-secondary" onclick="openIngestModal()">Ingest API</button>
+    </div>
+  </header>
+
+  <div class="container">
+
+    <div class="alert-banner" id="alert-banner">
+      <div>
+        <span id="alert-text">Alert triggered</span>
+      </div>
+      <button class="btn btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="dismissAlert()">Dismiss</button>
+    </div>
+
+    <div class="filter-card">
+      <div class="search-row">
+        <div class="search-input-wrapper">
+          <input type="text" id="query-input" placeholder="Search message, JSON fields, regex... (Enter to run)" onkeydown="if(event.key==='Enter') executeSearch()">
+        </div>
+        <button class="btn" onclick="executeSearch()">Search</button>
+        <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
+      </div>
+
+      <div class="filters-secondary">
+        <div class="filter-group">
+          <span class="filter-label">Service</span>
+          <select id="service-select" onchange="executeSearch()">
+            <option value="">All Services</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <span class="filter-label">Level</span>
+          <div class="level-pills">
+            <span class="level-pill active" data-lvl="" onclick="setLevelFilter('', this)">ALL</span>
+            <span class="level-pill" data-lvl="INFO" onclick="setLevelFilter('INFO', this)">INFO</span>
+            <span class="level-pill" data-lvl="WARN" onclick="setLevelFilter('WARN', this)">WARN</span>
+            <span class="level-pill" data-lvl="ERROR" onclick="setLevelFilter('ERROR', this)">ERROR</span>
+            <span class="level-pill" data-lvl="DEBUG" onclick="setLevelFilter('DEBUG', this)">DEBUG</span>
+          </div>
+        </div>
+
+        <div class="filter-group">
+          <span class="filter-label">Time</span>
+          <select id="time-select" onchange="executeSearch()">
+            <option value="all">All time</option>
+            <option value="15m">Last 15 minutes</option>
+            <option value="1h">Last 1 hour</option>
+            <option value="24h">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <span class="filter-label">Limit</span>
+          <select id="limit-select" onchange="executeSearch()">
+            <option value="50">50</option>
+            <option value="100" selected>100</option>
+            <option value="250">250</option>
+            <option value="500">500</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="results-meta">
+      <div>
+        Matched <b id="matched-count" style="color:var(--text);">0</b> logs
+        (<span id="duration-text">0 ms</span>) &bull;
+        Scanned <span id="scanned-chunks">0</span> chunks
+      </div>
+      <div id="status-hint">Ready</div>
+    </div>
+
+    <div class="logs-container">
+      <table class="logs-table">
+        <thead>
+          <tr>
+            <th class="cell-time">Timestamp</th>
+            <th class="cell-level">Level</th>
+            <th class="cell-service">Service</th>
+            <th class="cell-msg">Message</th>
+          </tr>
+        </thead>
+        <tbody id="logs-tbody">
+          <tr>
+            <td colspan="4" class="empty-state">
+              <div>No logs yet. Send logs via POST /api/v1/logs or run search.</div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <div class="modal-overlay" id="ingest-modal" onclick="if(event.target===this) closeIngestModal()">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 style="font-size:0.95rem;">Send Logs</h3>
+        <button class="modal-close" onclick="closeIngestModal()">&times;</button>
+      </div>
+      <p style="color:var(--text-muted); margin-bottom:0.6rem; font-size:0.78rem;">
+        HTTP POST JSON array or single object:
+      </p>
+      <pre style="background:#0b0f19; border:1px solid var(--card-border); padding:0.65rem; border-radius:5px; font-family:var(--mono); font-size:0.75rem; overflow-x:auto; color:#a5f3fc;">
+curl -X POST http://127.0.0.1:8080/api/v1/logs \
+  -H "Content-Type: application/json" \
+  -d '[
+    {
+      "service": "auth-service",
+      "level": "INFO",
+      "message": "User authenticated",
+      "user_id": 42
+    },
+    {
+      "service": "billing",
+      "level": "ERROR",
+      "message": "Payment provider timeout",
+      "amount": 99.00
+    }
+  ]'</pre>
+    </div>
+  </div>
+
+  <script>
+    const BASE_PATH = window.location.pathname.replace(/\/+$/, '');
+    let activeLevel = '';
+    let isLive = false;
+    let liveTimer = null;
+    let currentLogs = [];
+
+    function apiUrl(endpoint) {
+      return (BASE_PATH ? BASE_PATH : '') + endpoint;
+    }
+
+    function setLevelFilter(lvl, el) {
+      activeLevel = lvl;
+      document.querySelectorAll('.level-pill').forEach(p => p.classList.remove('active'));
+      el.classList.add('active');
+      executeSearch();
+    }
+
+    function toggleLiveTail() {
+      isLive = !isLive;
+      const btn = document.getElementById('live-toggle');
+      const text = document.getElementById('live-text');
+      if (isLive) {
+        btn.classList.add('live-active');
+        text.innerText = 'Live: ON';
+        executeSearch();
+        liveTimer = setInterval(() => {
+          executeSearch(true);
+          fetchStats();
+        }, 2000);
+      } else {
+        btn.classList.remove('live-active');
+        text.innerText = 'Live: OFF';
+        if (liveTimer) clearInterval(liveTimer);
+      }
+    }
+
+    function resetFilters() {
+      document.getElementById('query-input').value = '';
+      document.getElementById('service-select').value = '';
+      document.getElementById('time-select').value = 'all';
+      document.getElementById('limit-select').value = '100';
+      setLevelFilter('', document.querySelector('.level-pill[data-lvl=""]'));
+    }
+
+    function getTimeWindowMs(val) {
+      const now = Date.now();
+      switch(val) {
+        case '15m': return { from: now - 15 * 60 * 1000, to: now };
+        case '1h':  return { from: now - 60 * 60 * 1000, to: now };
+        case '24h': return { from: now - 24 * 60 * 60 * 1000, to: now };
+        case '7d':  return { from: now - 7 * 24 * 60 * 60 * 1000, to: now };
+        default:    return { from: 0, to: 0 };
+      }
+    }
+
+    async function executeSearch(silent = false) {
+      const q = document.getElementById('query-input').value.trim();
+      const service = document.getElementById('service-select').value;
+      const limit = document.getElementById('limit-select').value;
+      const timeVal = document.getElementById('time-select').value;
+      const timeRange = getTimeWindowMs(timeVal);
+
+      const params = new URLSearchParams();
+      if (q) params.set('q', q);
+      if (service) params.set('service', service);
+      if (activeLevel) params.set('level', activeLevel);
+      if (limit) params.set('limit', limit);
+      if (timeRange.from > 0) params.set('from', timeRange.from);
+      if (timeRange.to > 0) params.set('to', timeRange.to);
+
+      if (!silent) document.getElementById('status-hint').innerText = 'Querying...';
+
+      try {
+        const resp = await fetch(apiUrl('/api/v1/search') + '?' + params.toString());
+        if (!resp.ok) throw new Error('Query error: ' + resp.statusText);
+        const data = await resp.json();
+        renderResults(data);
+        if (!silent) document.getElementById('status-hint').innerText = 'Ready';
+      } catch (err) {
+        if (!silent) document.getElementById('status-hint').innerText = 'Error';
+      }
+    }
+
+    function formatTimestamp(ts) {
+      if (!ts) return '';
+      const d = new Date(ts);
+      return d.toISOString().replace('T', ' ').replace('Z', '');
+    }
+
+    function renderResults(data) {
+      currentLogs = data.logs || [];
+      document.getElementById('matched-count').innerText = data.total_matched || currentLogs.length;
+      document.getElementById('duration-text').innerText = (data.duration_ms || 0).toFixed(2) + ' ms';
+      document.getElementById('scanned-chunks').innerText = data.total_scanned_chunks || 0;
+
+      const tbody = document.getElementById('logs-tbody');
+      if (currentLogs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" class="empty-state">No matching logs found.</td></tr>`;
+        return;
+      }
+
+      let html = '';
+      currentLogs.forEach((log, idx) => {
+        const lvl = (log.level || 'INFO').toUpperCase();
+        const timeStr = formatTimestamp(log.timestamp);
+        const service = log.service || 'unknown';
+        const msg = escapeHtml(log.message || log.raw_json || '');
+
+        html += `
+          <tr class="log-row" id="row-${idx}" onclick="toggleRowDetails(${idx})">
+            <td class="cell-time">${timeStr}</td>
+            <td class="cell-level"><span class="badge badge-${lvl}">${lvl}</span></td>
+            <td class="cell-service"><span class="service-pill">${escapeHtml(service)}</span></td>
+            <td class="cell-msg">${msg}</td>
+          </tr>
+          <tr class="details-row" id="details-${idx}" style="display:none;">
+            <td colspan="4">
+              <div class="details-box">
+                <div class="details-actions">
+                  <button class="btn btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="copyRawJson(event, ${idx})">Copy JSON</button>
+                </div>
+                <pre>${escapeHtml(formatJson(log.raw_json || log))}</pre>
+              </div>
+            </td>
+          </tr>
+        `;
+      });
+      tbody.innerHTML = html;
+    }
+
+    function toggleRowDetails(idx) {
+      const row = document.getElementById(`row-${idx}`);
+      const details = document.getElementById(`details-${idx}`);
+      if (!details) return;
+      const isOpen = details.style.display !== 'none';
+      details.style.display = isOpen ? 'none' : 'table-row';
+      row.classList.toggle('expanded', !isOpen);
+    }
+
+    function copyRawJson(e, idx) {
+      e.stopPropagation();
+      const log = currentLogs[idx];
+      const text = typeof log.raw_json === 'string' ? log.raw_json : JSON.stringify(log, null, 2);
+      navigator.clipboard.writeText(text);
+    }
+
+    function formatJson(val) {
+      try {
+        const obj = typeof val === 'string' ? JSON.parse(val) : val;
+        return JSON.stringify(obj, null, 2);
+      } catch {
+        return val;
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+    }
+
+    async function fetchStats() {
+      try {
+        const resp = await fetch(apiUrl('/api/v1/stats'));
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        document.getElementById('stat-total-logs').innerText = (data.total_logs_ingested || 0).toLocaleString();
+        document.getElementById('stat-disk-size').innerText = formatBytes(data.disk_bytes_compressed || 0);
+        document.getElementById('stat-ratio').innerText = data.compression_ratio || '1.0x';
+        document.getElementById('stat-chunks').innerText = (data.total_chunks_on_disk || 0);
+
+        if (Array.isArray(data.services)) {
+          const select = document.getElementById('service-select');
+          const curVal = select.value;
+          const existing = new Set(Array.from(select.options).map(o => o.value));
+          data.services.forEach(s => {
+            if (s && !existing.has(s)) {
+              const opt = document.createElement('option');
+              opt.value = s;
+              opt.innerText = s;
+              select.appendChild(opt);
+            }
+          });
+          select.value = curVal;
+        }
+
+        if (data.recent_alerts && data.recent_alerts.length > 0) {
+          const lastAlert = data.recent_alerts[data.recent_alerts.length - 1];
+          const banner = document.getElementById('alert-banner');
+          document.getElementById('alert-text').innerText =
+            `Alert: ${lastAlert.service} experienced ${lastAlert.error_count} errors in 60s (${lastAlert.time || ''})`;
+          banner.classList.add('active');
+        }
+      } catch (err) {}
+    }
+
+    function dismissAlert() {
+      document.getElementById('alert-banner').classList.remove('active');
+    }
+
+    function openIngestModal() {
+      document.getElementById('ingest-modal').classList.add('active');
+    }
+    function closeIngestModal() {
+      document.getElementById('ingest-modal').classList.remove('active');
+    }
+
+    fetchStats();
+    executeSearch();
+    setInterval(fetchStats, 5000);
+  </script>
+</body>
+</html>)SIFTLOG_HTML";

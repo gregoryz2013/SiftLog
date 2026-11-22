@@ -1,0 +1,21 @@
+# Build directories
+build/
+cmake-build-*/
+bin/
+out/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*~
+
+# Data & Test directories
+data/
+test_data/
+*.zst
+*.meta
+
+# OS generated
+.DS_Store
+Thumbs.db

@@ -1,0 +1,91 @@
+#include "storage/log_storage.hpp"
+#include "alerting/alert_manager.hpp"
+#include "api/api_server.hpp"
+#include <iostream>
+#include <string>
+#include <csignal>
+#include <cstdlib>
+#include <memory>
+
+static std::function<void()> g_shutdown_handler;
+
+static void signal_handler(int sig) {
+    std::cout << "\n[siftlog] received signal " << sig << ", shutting down..." << std::endl;
+    if (g_shutdown_handler) {
+        g_shutdown_handler();
+    }
+}
+
+static std::string get_env(const char* name, const std::string& def) {
+    const char* val = std::getenv(name);
+    return (val && *val) ? std::string(val) : def;
+}
+
+int main(int argc, char* argv[]) {
+    std::string host = get_env("SIFTLOG_HOST", "0.0.0.0");
+    int port = 8080;
+    std::string data_dir = get_env("SIFTLOG_DATA_DIR", "./data");
+    std::string tg_token = get_env("SIFTLOG_TG_TOKEN", "");
+    std::string tg_chat_id = get_env("SIFTLOG_TG_CHAT_ID", "");
+    size_t error_threshold = 10;
+
+    try {
+        std::string p_env = get_env("SIFTLOG_PORT", "");
+        if (!p_env.empty()) port = std::stoi(p_env);
+    } catch (...) {}
+
+    try {
+        std::string t_env = get_env("SIFTLOG_ERROR_THRESHOLD", "");
+        if (!t_env.empty()) error_threshold = std::stoull(t_env);
+    } catch (...) {}
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--host" && i + 1 < argc) {
+            host = argv[++i];
+        } else if (arg == "--port" && i + 1 < argc) {
+            port = std::stoi(argv[++i]);
+        } else if (arg == "--data-dir" && i + 1 < argc) {
+            data_dir = argv[++i];
+        } else if (arg == "--tg-token" && i + 1 < argc) {
+            tg_token = argv[++i];
+        } else if (arg == "--tg-chat-id" && i + 1 < argc) {
+            tg_chat_id = argv[++i];
+        } else if (arg == "--error-threshold" && i + 1 < argc) {
+            error_threshold = std::stoull(argv[++i]);
+        } else if (arg == "--help" || arg == "-h") {
+            std::cout << "Usage: " << argv[0] << " [options]\n\n"
+                      << "Options:\n"
+                      << "  --host <ip>                  Listen host (default: 0.0.0.0, use 127.0.0.1 behind reverse proxy)\n"
+                      << "  --port <port>                Listen port (default: 8080)\n"
+                      << "  --data-dir <path>            Storage directory (default: ./data)\n"
+                      << "  --tg-token <token>           Telegram Bot token for alerts\n"
+                      << "  --tg-chat-id <id>            Telegram Chat ID for alerts\n"
+                      << "  --error-threshold <n>        Error spike threshold per 60s window (default: 10)\n"
+                      << "  --help, -h                   Show this help message\n";
+            return 0;
+        }
+    }
+
+    std::cout << "[siftlog] version 0.1.0" << std::endl;
+    std::cout << "[siftlog] host: " << host << ", port: " << port << std::endl;
+    std::cout << "[siftlog] data_dir: " << data_dir << std::endl;
+    std::cout << "[siftlog] error_threshold: " << error_threshold << " errors/60s" << std::endl;
+    std::cout << "[siftlog] telegram alerts: " << (tg_token.empty() ? "disabled" : "enabled") << std::endl;
+
+    auto storage = std::make_shared<LogStorage>(data_dir);
+    auto alert_manager = std::make_shared<AlertManager>(tg_token, tg_chat_id, error_threshold);
+    auto server = std::make_shared<ApiServer>(storage, alert_manager, host, port);
+
+    g_shutdown_handler = [&]() {
+        server->stop();
+        storage->stop();
+    };
+
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
+
+    server->start();
+    storage->stop();
+    return 0;
+}

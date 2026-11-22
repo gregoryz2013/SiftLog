@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  siftlog:
+    build: .
+    container_name: siftlog
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - siftlog_data:/data
+    environment:
+      - SIFTLOG_HOST=0.0.0.0
+      - SIFTLOG_PORT=8080
+      - SIFTLOG_DATA_DIR=/data
+      - SIFTLOG_ERROR_THRESHOLD=10
+      # - SIFTLOG_TG_TOKEN=your_token
+      # - SIFTLOG_TG_CHAT_ID=your_chat_id
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  siftlog_data:
+    driver: local

@@ -1,0 +1,25 @@
+[Unit]
+Description=SiftLog Ingestion and Search Engine
+After=network.target
+
+[Service]
+Type=simple
+User=siftlog
+Group=siftlog
+WorkingDirectory=/var/lib/siftlog
+ExecStart=/usr/local/bin/siftlog --host 127.0.0.1 --port 8080 --data-dir /var/lib/siftlog/data --error-threshold 10
+Restart=always
+RestartSec=5s
+
+# Security sandboxing
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/siftlog
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

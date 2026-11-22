@@ -19,6 +19,23 @@ struct EnterpriseLicense {
             std::chrono::system_clock::now().time_since_epoch()).count();
         return now < expires_ms;
     }
+
+    bool has_feature(std::string_view feature) const noexcept {
+        if (!is_active()) return false;
+        std::string p = plan;
+        for (auto& c : p) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+        if (feature == "finops_dedup") {
+            return p == "pro" || p == "business" || p == "enterprise" || p.find("ultimate") != std::string::npos;
+        }
+        if (feature == "rca" || feature == "waterfall") {
+            return p == "business" || p == "enterprise" || p.find("ultimate") != std::string::npos;
+        }
+        if (feature == "audit_ledger" || feature == "updater") {
+            return p == "enterprise" || p.find("ultimate") != std::string::npos;
+        }
+        return false;
+    }
 };
 
 class LicenseManager {

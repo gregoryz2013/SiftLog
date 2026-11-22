@@ -180,7 +180,8 @@ int main(int argc, char* argv[]) {
     }
 
     auto s3_client = std::make_shared<S3Client>(s3_cfg);
-    auto noise_filter = std::make_shared<NoiseFilter>(noise_dedup, noise_window);
+    bool finops_enabled = noise_dedup && license.has_feature("finops_dedup");
+    auto noise_filter = std::make_shared<NoiseFilter>(finops_enabled, noise_window);
     auto rca_engine = std::make_shared<RcaEngine>(60, 3);
     auto storage = std::make_shared<LogStorage>(data_dir, 5000, std::chrono::milliseconds(2000), retention_days, s3_client, noise_filter, rca_engine);
     auto alert_manager = std::make_shared<AlertManager>(tg_token, tg_chat_id, error_threshold);

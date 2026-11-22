@@ -84,6 +84,13 @@ def main():
     clean_data_dir()
     binary_path = find_binary()
 
+    test_lic_token = json.dumps({
+        "customer": "CI Enterprise Lab",
+        "plan": "Enterprise Ultimate",
+        "expires_at_ms": 2082758400000,
+        "signature": "sig-ci-test-verified"
+    })
+
     # --- Test Suite 1: Unauthenticated with Vector & FluentBit ---
     print("\n--- [Suite 1: Standard Ingestion, NDJSON, Loki push, Retention] ---")
     cmd = [
@@ -92,7 +99,8 @@ def main():
         "--port", "8999",
         "--data-dir", TEST_DATA_DIR,
         "--error-threshold", "5",
-        "--retention-days", "7"
+        "--retention-days", "7",
+        "--license", test_lic_token
     ]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
@@ -297,7 +305,8 @@ def main():
         "--port", "8999",
         "--data-dir", TEST_DATA_DIR,
         "--auth-user", "admin",
-        "--auth-password", "secret123"
+        "--auth-password", "secret123",
+        "--license", test_lic_token
     ]
     proc_auth = subprocess.Popen(cmd_auth, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 

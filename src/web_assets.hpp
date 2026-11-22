@@ -102,6 +102,20 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
     .tag-plan {
       font-weight: 600;
     }
+    .tag-pro {
+      color: #38bdf8;
+      border-color: rgba(56, 189, 248, 0.45);
+      background: rgba(56, 189, 248, 0.12);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .tag-business {
+      color: #60a5fa;
+      border-color: rgba(96, 165, 250, 0.45);
+      background: rgba(96, 165, 250, 0.12);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
     .tag-enterprise {
       color: #c084fc;
       border-color: rgba(192, 132, 252, 0.45);
@@ -1864,22 +1878,40 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       executeSearch();
     }
 
+    let currentLicense = { is_active: false, plan: 'community', features: {} };
+
     async function fetchLicense() {
       try {
         const resp = await fetch(apiUrl('/api/v1/enterprise/license'));
         if (!resp.ok) return;
-        const lic = await resp.json();
+        currentLicense = await resp.json();
+        const lic = currentLicense;
         const planBadge = document.getElementById('plan-badge');
         const sideBadge = document.getElementById('sidebar-plan-badge');
         const custEl = document.getElementById('ent-customer');
         const statEl = document.getElementById('ent-status');
+        const featEl = document.getElementById('ent-features');
         const auditBtn = document.getElementById('audit-btn');
 
         if (lic.is_active) {
-          const planName = (lic.plan || 'ENTERPRISE').toUpperCase();
+          const rawPlan = (lic.plan || 'pro').toLowerCase();
+          let tierName = 'PRO ($199/mo)';
+          let badgeClass = 'tag tag-pro';
+          let featText = 'FinOps Dedup: Active';
+
+          if (rawPlan.includes('business')) {
+            tierName = 'BUSINESS ($690/mo)';
+            badgeClass = 'tag tag-business';
+            featText = 'FinOps &bull; RCA Engine &bull; APM Waterfall';
+          } else if (rawPlan.includes('enterprise') || rawPlan.includes('ultimate')) {
+            tierName = 'ENTERPRISE ($1,990/mo)';
+            badgeClass = 'tag tag-enterprise';
+            featText = 'Full Suite &bull; WORM Audit &bull; Auto-Updater';
+          }
+
           if (planBadge) {
-            planBadge.className = 'tag tag-enterprise';
-            planBadge.innerText = planName;
+            planBadge.className = badgeClass;
+            planBadge.innerText = tierName;
           }
           if (sideBadge) {
             sideBadge.className = 'badge';
@@ -1887,23 +1919,25 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
             sideBadge.style.borderColor = 'rgba(192, 132, 252, 0.4)';
             sideBadge.innerText = 'ACTIVE';
           }
-          if (custEl) custEl.innerText = `Client: ${lic.customer || 'Enterprise Customer'}`;
+          if (custEl) custEl.innerText = `Client: ${lic.customer || 'Licensed Customer'}`;
           if (statEl) {
             const exp = lic.expires_at_ms ? new Date(lic.expires_at_ms).toISOString().slice(0, 10) : 'Permanent';
             statEl.innerHTML = `<span style="color:#10b981;">Valid</span> (exp: ${exp})`;
           }
-          if (auditBtn) auditBtn.style.display = 'inline-block';
+          if (featEl) featEl.innerHTML = featText;
+          if (auditBtn) auditBtn.style.display = (lic.features && lic.features.audit_ledger) ? 'inline-block' : 'none';
         } else {
           if (planBadge) {
             planBadge.className = 'tag';
-            planBadge.innerText = 'COMMUNITY';
+            planBadge.innerText = 'COMMUNITY ($0)';
           }
           if (sideBadge) {
             sideBadge.className = 'badge';
-            sideBadge.innerText = 'COMMUNITY';
+            sideBadge.innerText = 'FREE';
           }
-          if (custEl) custEl.innerText = 'Edition: Community';
-          if (statEl) statEl.innerText = 'License: Inactive';
+          if (custEl) custEl.innerText = 'Plan: Community (Free)';
+          if (statEl) statEl.innerText = 'License: None (GitHub)';
+          if (featEl) featEl.innerHTML = 'Core Ingestion &bull; Zstd &bull; LogSQL';
           if (auditBtn) auditBtn.style.display = 'none';
         }
       } catch (e) {}
@@ -1917,6 +1951,10 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
         const resp = await fetch(apiUrl('/api/v1/enterprise/audit'));
         if (!resp.ok) throw new Error('Audit API unavailable');
         const data = await resp.json();
+        if (data.status === 'LOCKED') {
+          tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:2.5rem 1rem; font-family:var(--mono); color:var(--text-muted);">${escapeHtml(data.message)}</td></tr>`;
+          return;
+        }
         const events = data.audit_events || [];
         if (!events.length) {
           tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:1.5rem; color:var(--text-dim); font-family:var(--mono);">No audit events recorded yet.</td></tr>';
@@ -1988,7 +2026,20 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       try {
         const resp = await fetch(apiUrl(`/api/v1/trace?trace_id=${encodeURIComponent(traceId)}`));
         if (!resp.ok) throw new Error('Trace fetch failed');
-        activeTrace = await resp.json();
+        const data = await resp.json();
+
+        if (data.error === 'feature_locked') {
+          document.getElementById('wf-timeline').innerHTML = `
+            <div style="padding:2.5rem 1.5rem; text-align:center; font-family:var(--mono);">
+              <div style="color:var(--text); font-size:0.85rem; font-weight:600; margin-bottom:0.5rem;">APM Trace Waterfall Locked</div>
+              <div style="color:var(--text-muted); font-size:0.72rem; max-width:440px; margin:0 auto 1.2rem auto; line-height:1.5;">${escapeHtml(data.message)}</div>
+              <button class="btn btn-secondary" onclick="closeTraceModal(); document.getElementById('query-input').value='trace_id:${escapeHtml(traceId)}'; executeSearch();">Filter logs by trace_id (Community)</button>
+            </div>
+          `;
+          return;
+        }
+
+        activeTrace = data;
 
         document.getElementById('wf-duration').innerText = `${activeTrace.total_duration_ms} ms`;
         document.getElementById('wf-spans').innerText = activeTrace.spans_count;

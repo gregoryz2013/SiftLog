@@ -435,7 +435,14 @@ void ApiServer::setup_routes() {
             {"plan", license_.plan},
             {"customer", license_.customer.empty() ? "Community Edition" : license_.customer},
             {"is_active", license_.is_active()},
-            {"expires_at_ms", license_.expires_ms}
+            {"expires_at_ms", license_.expires_ms},
+            {"features", {
+                {"finops_dedup", license_.has_feature("finops_dedup")},
+                {"rca", license_.has_feature("rca")},
+                {"waterfall", license_.has_feature("waterfall")},
+                {"audit_ledger", license_.has_feature("audit_ledger")},
+                {"updater", license_.has_feature("updater")}
+            }}
         };
         res.status = 200;
         res.set_content(resp.dump(), "application/json");
@@ -493,6 +500,19 @@ void ApiServer::setup_routes() {
         if (!check_auth(req, res)) return;
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_header("Cache-Control", "no-cache");
+
+        if (!license_.has_feature("audit_ledger")) {
+            nlohmann::json locked = {
+                {"status", "LOCKED"},
+                {"tier_required", "enterprise"},
+                {"audit_events", nlohmann::json::array()},
+                {"message", "Immutable WORM Audit Ledger requires Enterprise ($1,990/mo) subscription."}
+            };
+            res.status = 200;
+            res.set_content(locked.dump(), "application/json");
+            return;
+        }
+
         nlohmann::json arr = nlohmann::json::array();
         if (audit_ledger_) {
             for (const auto& ev : audit_ledger_->get_recent_events(50)) {
@@ -508,6 +528,18 @@ void ApiServer::setup_routes() {
         if (!check_auth(req, res)) return;
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_header("Cache-Control", "no-cache");
+
+        if (!license_.has_feature("rca")) {
+            nlohmann::json locked = {
+                {"status", "LOCKED"},
+                {"has_incident", false},
+                {"tier_required", "business"},
+                {"message", "Automated RCA Incident Engine requires Business ($690/mo) or Enterprise subscription."}
+            };
+            res.status = 200;
+            res.set_content(locked.dump(), "application/json");
+            return;
+        }
 
         IncidentAnalysis incident;
         if (storage_->get_rca_engine()) {
@@ -531,6 +563,20 @@ void ApiServer::setup_routes() {
         }
 
         std::string trace_id = req.get_param_value("trace_id");
+
+        if (!license_.has_feature("waterfall")) {
+            nlohmann::json locked = {
+                {"error", "feature_locked"},
+                {"trace_id", trace_id},
+                {"tier_required", "business"},
+                {"spans_count", 0},
+                {"spans", nlohmann::json::array()},
+                {"message", "Interactive APM Trace Waterfall requires Business ($690/mo) or Enterprise subscription. Community users can filter logs by trace_id."}
+            };
+            res.status = 200;
+            res.set_content(locked.dump(), "application/json");
+            return;
+        }
         std::vector<LogEntry> logs = storage_->get_trace(trace_id);
 
         int64_t start_ms = logs.empty() ? 0 : logs.front().timestamp;

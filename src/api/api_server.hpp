@@ -3,6 +3,9 @@
 #include "../storage/log_storage.hpp"
 #include "../alerting/alert_manager.hpp"
 #include "../security/pii_masker.hpp"
+#include "../enterprise/license_manager.hpp"
+#include "../enterprise/updater.hpp"
+#include "../enterprise/audit_ledger.hpp"
 #include <httplib.h>
 #include <memory>
 #include <chrono>
@@ -15,7 +18,10 @@ public:
               int port = 8080,
               std::string auth_user = "",
               std::string auth_password = "",
-              std::shared_ptr<PiiMasker> pii_masker = nullptr);
+              std::shared_ptr<PiiMasker> pii_masker = nullptr,
+              EnterpriseLicense license = {},
+              std::shared_ptr<EnterpriseUpdater> updater = nullptr,
+              std::shared_ptr<AuditLedger> audit_ledger = nullptr);
 
     void start();
     void stop();
@@ -33,6 +39,9 @@ private:
     std::string auth_user_;
     std::string auth_password_;
     std::shared_ptr<PiiMasker> pii_masker_;
+    EnterpriseLicense license_;
+    std::shared_ptr<EnterpriseUpdater> updater_;
+    std::shared_ptr<AuditLedger> audit_ledger_;
     httplib::Server svr_;
     std::chrono::steady_clock::time_point start_time_;
 };

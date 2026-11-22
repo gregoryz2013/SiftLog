@@ -10,7 +10,10 @@ ApiServer::ApiServer(std::shared_ptr<LogStorage> storage,
                      int port,
                      std::string auth_user,
                      std::string auth_password,
-                     std::shared_ptr<PiiMasker> pii_masker)
+                     std::shared_ptr<PiiMasker> pii_masker,
+                     EnterpriseLicense license,
+                     std::shared_ptr<EnterpriseUpdater> updater,
+                     std::shared_ptr<AuditLedger> audit_ledger)
     : storage_(std::move(storage)),
       alert_manager_(std::move(alert_manager)),
       host_(std::move(host)),
@@ -18,6 +21,9 @@ ApiServer::ApiServer(std::shared_ptr<LogStorage> storage,
       auth_user_(std::move(auth_user)),
       auth_password_(std::move(auth_password)),
       pii_masker_(std::move(pii_masker)),
+      license_(std::move(license)),
+      updater_(std::move(updater)),
+      audit_ledger_(std::move(audit_ledger)),
       start_time_(std::chrono::steady_clock::now()) {
     setup_routes();
 }
@@ -189,11 +195,13 @@ void ApiServer::setup_routes() {
 
         size_t count = entries.size();
         storage_->append_batch(entries);
+        if (audit_ledger_) audit_ledger_->record_event(get_client_ip(req), "INGEST", "count=" + std::to_string(count));
 
         nlohmann::json response = {
             {"status", "ok"},
             {"ingested", count}
         };
+
         res.status = 200;
         res.set_content(response.dump(), "application/json");
     });
@@ -326,6 +334,10 @@ void ApiServer::setup_routes() {
             {"logs", logs_json}
         };
 
+        if (audit_ledger_) {
+            audit_ledger_->record_event(get_client_ip(req), "SEARCH", "q=" + params.query + " service=" + params.service + " matched=" + std::to_string(search_result.total_matched));
+        }
+
         res.status = 200;
         res.set_content(response.dump(), "application/json");
     });
@@ -364,11 +376,90 @@ void ApiServer::setup_routes() {
             {"compression_ratio", ratio_ss.str()},
             {"services", stats.known_services},
             {"pii_masking", pii_masker_ ? pii_masker_->is_enabled() : false},
+            {"enterprise_plan", license_.plan},
+            {"license_active", license_.is_active()},
             {"recent_alerts", alerts_json}
         };
 
         res.status = 200;
         res.set_content(response.dump(), "application/json");
+    });
+
+    // Enterprise: License Info
+    svr_.Get("/api/v1/enterprise/license", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Cache-Control", "no-cache");
+        nlohmann::json resp = {
+            {"plan", license_.plan},
+            {"customer", license_.customer.empty() ? "Community Edition" : license_.customer},
+            {"is_active", license_.is_active()},
+            {"expires_at_ms", license_.expires_ms}
+        };
+        res.status = 200;
+        res.set_content(resp.dump(), "application/json");
+    });
+
+    // Enterprise: Check Updates
+    svr_.Get("/api/v1/enterprise/updates", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Cache-Control", "no-cache");
+        if (!updater_) {
+            res.status = 200;
+            res.set_content(R"({"update_available":false,"message":"Updater not configured"})", "application/json");
+            return;
+        }
+        auto check = updater_->check_update(license_.raw_token);
+        res.status = 200;
+        res.set_content(check.to_json().dump(), "application/json");
+    });
+
+    // Enterprise: Apply Update
+    svr_.Post("/api/v1/enterprise/updates/apply", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+        if (!updater_) {
+            res.status = 400;
+            res.set_content(R"({"error":"Updater not configured"})", "application/json");
+            return;
+        }
+        std::string err;
+        std::string url;
+        try {
+            auto j = nlohmann::json::parse(req.body);
+            if (j.contains("download_url") && j["download_url"].is_string()) {
+                url = j["download_url"].get<std::string>();
+            }
+        } catch (...) {}
+
+        if (url.empty()) {
+            auto check = updater_->check_update(license_.raw_token);
+            url = check.download_url;
+        }
+
+        bool ok = updater_->apply_update(url, err);
+        nlohmann::json resp = {
+            {"success", ok},
+            {"error", err}
+        };
+        res.status = ok ? 200 : 500;
+        res.set_content(resp.dump(), "application/json");
+    });
+
+    // Enterprise: Audit Log
+    svr_.Get("/api/v1/enterprise/audit", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Cache-Control", "no-cache");
+        nlohmann::json arr = nlohmann::json::array();
+        if (audit_ledger_) {
+            for (const auto& ev : audit_ledger_->get_recent_events(50)) {
+                arr.push_back(ev.to_json());
+            }
+        }
+        res.status = 200;
+        res.set_content(nlohmann::json{{"audit_events", arr}}.dump(), "application/json");
     });
 }
 
@@ -379,6 +470,9 @@ void ApiServer::start() {
     }
     if (pii_masker_ && pii_masker_->is_enabled()) {
         std::cout << "[server] pii & secret masking: enabled" << std::endl;
+    }
+    if (license_.valid) {
+        std::cout << "[server] enterprise plan: " << license_.plan << " (customer: " << license_.customer << ")" << std::endl;
     }
     svr_.listen(host_, port_);
 }

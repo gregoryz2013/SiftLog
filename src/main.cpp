@@ -2,6 +2,9 @@
 #include "alerting/alert_manager.hpp"
 #include "api/api_server.hpp"
 #include "security/pii_masker.hpp"
+#include "enterprise/license_manager.hpp"
+#include "enterprise/updater.hpp"
+#include "enterprise/audit_ledger.hpp"
 #include <iostream>
 #include <string>
 #include <csignal>
@@ -37,6 +40,9 @@ int main(int argc, char* argv[]) {
     if (mask_env == "false" || mask_env == "0" || mask_env == "off") {
         mask_pii = false;
     }
+    std::string license_path = get_env("SIFTLOG_LICENSE", "");
+    std::string update_url = get_env("SIFTLOG_UPDATE_URL", "");
+    std::string audit_log_path = get_env("SIFTLOG_AUDIT_LOG", data_dir + "/audit.log");
 
     try {
         std::string p_env = get_env("SIFTLOG_PORT", "");
@@ -73,6 +79,12 @@ int main(int argc, char* argv[]) {
             auth_user = argv[++i];
         } else if (arg == "--auth-password" && i + 1 < argc) {
             auth_password = argv[++i];
+        } else if (arg == "--license" && i + 1 < argc) {
+            license_path = argv[++i];
+        } else if (arg == "--update-url" && i + 1 < argc) {
+            update_url = argv[++i];
+        } else if (arg == "--audit-log" && i + 1 < argc) {
+            audit_log_path = argv[++i];
         } else if (arg == "--no-mask-pii") {
             mask_pii = false;
         } else if (arg == "--mask-pii") {
@@ -86,6 +98,9 @@ int main(int argc, char* argv[]) {
                       << "  --retention-days <days>      Auto-prune log chunks older than N days (default: 0 = disabled)\n"
                       << "  --auth-user <username>       HTTP Basic Auth username for UI & API (optional)\n"
                       << "  --auth-password <password>   HTTP Basic Auth password for UI & API (optional)\n"
+                      << "  --license <file_or_token>    Enterprise license file or key token\n"
+                      << "  --update-url <url>           Enterprise update server hostname\n"
+                      << "  --audit-log <path>           Enterprise audit trail file path (default: <data-dir>/audit.log)\n"
                       << "  --no-mask-pii                Disable automatic PII & secret masking (default: enabled)\n"
                       << "  --tg-token <token>           Telegram Bot token for alerts\n"
                       << "  --tg-chat-id <id>            Telegram Chat ID for alerts\n"
@@ -108,10 +123,21 @@ int main(int argc, char* argv[]) {
     std::cout << "[siftlog] error_threshold: " << error_threshold << " errors/60s" << std::endl;
     std::cout << "[siftlog] telegram alerts: " << (tg_token.empty() ? "disabled" : "enabled") << std::endl;
 
+    EnterpriseLicense license;
+    if (!license_path.empty()) {
+        license = LicenseManager::parse_license_file(license_path);
+        if (!license.valid) {
+            license = LicenseManager::parse_license_token(license_path);
+        }
+        std::cout << "[siftlog] enterprise license: " << (license.is_active() ? "ACTIVE (" + license.plan + ", customer: " + license.customer + ")" : "INACTIVE/EXPIRED") << std::endl;
+    }
+
     auto storage = std::make_shared<LogStorage>(data_dir, 5000, std::chrono::milliseconds(2000), retention_days);
     auto alert_manager = std::make_shared<AlertManager>(tg_token, tg_chat_id, error_threshold);
     auto pii_masker = std::make_shared<PiiMasker>(mask_pii);
-    auto server = std::make_shared<ApiServer>(storage, alert_manager, host, port, auth_user, auth_password, pii_masker);
+    auto updater = std::make_shared<EnterpriseUpdater>("0.1.0", update_url);
+    auto audit_ledger = std::make_shared<AuditLedger>(audit_log_path);
+    auto server = std::make_shared<ApiServer>(storage, alert_manager, host, port, auth_user, auth_password, pii_masker, license, updater, audit_ledger);
 
     g_shutdown_handler = [&]() {
         server->stop();

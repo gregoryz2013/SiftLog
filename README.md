@@ -47,6 +47,9 @@ Command-line flags and matching environment variables:
 | `--auth-user` | `SIFTLOG_AUTH_USER` | `""` | HTTP Basic Auth username (empty = public) |
 | `--auth-password` | `SIFTLOG_AUTH_PASSWORD` | `""` | HTTP Basic Auth password |
 | `--no-mask-pii` | `SIFTLOG_MASK_PII` | `enabled` | Disable automatic PII, secret, and token redaction |
+| `--license` | `SIFTLOG_LICENSE` | `""` | Enterprise license file or key token |
+| `--update-url` | `SIFTLOG_UPDATE_URL` | `""` | Enterprise update server hostname |
+| `--audit-log` | `SIFTLOG_AUDIT_LOG` | `<data-dir>/audit.log` | Enterprise compliance audit trail file |
 | `--error-threshold` | `SIFTLOG_ERROR_THRESHOLD` | `10` | Error spike threshold per service within 60s window |
 | `--tg-token` | `SIFTLOG_TG_TOKEN` | `""` | Telegram Bot API token for alert dispatches |
 | `--tg-chat-id` | `SIFTLOG_TG_CHAT_ID` | `""` | Telegram chat ID |

@@ -267,6 +267,23 @@ def main():
         assert status == 200
         print("PASS: protected API search authenticated")
 
+        # Enterprise endpoints
+        status, res = http_get("/api/v1/enterprise/license", auth=("admin", "secret123"))
+        assert status == 200
+        lic_data = json.loads(res)
+        assert "plan" in lic_data
+        print("PASS: enterprise license endpoint")
+
+        status, res = http_get("/api/v1/enterprise/audit", auth=("admin", "secret123"))
+        assert status == 200
+        audit_data = json.loads(res)
+        assert "audit_events" in audit_data
+        print("PASS: enterprise audit trail ledger")
+
+        status, res = http_get("/api/v1/enterprise/updates", auth=("admin", "secret123"))
+        assert status == 200
+        print("PASS: enterprise self-updater check endpoint")
+
     finally:
         proc_auth.terminate()
         try:

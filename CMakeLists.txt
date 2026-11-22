@@ -55,6 +55,9 @@ set(SIFTLOG_SOURCES
     src/alerting/alert_manager.cpp
     src/api/api_server.cpp
     src/security/pii_masker.cpp
+    src/enterprise/license_manager.cpp
+    src/enterprise/updater.cpp
+    src/enterprise/audit_ledger.cpp
 )
 
 add_executable(siftlog ${SIFTLOG_SOURCES})

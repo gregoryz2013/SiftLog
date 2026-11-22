@@ -40,7 +40,8 @@ class LogStorage {
 public:
     explicit LogStorage(std::string data_dir,
                         size_t max_batch_size = 5000,
-                        std::chrono::milliseconds flush_interval = std::chrono::milliseconds(2000));
+                        std::chrono::milliseconds flush_interval = std::chrono::milliseconds(2000),
+                        int retention_days = 0);
     ~LogStorage();
 
     void append(const LogEntry& entry);
@@ -48,6 +49,7 @@ public:
     SearchResult search(const SearchParams& params);
     StorageStats get_stats();
     void flush();
+    void enforce_retention();
     void stop();
 
 private:
@@ -62,6 +64,7 @@ private:
     std::string data_dir_;
     size_t max_batch_size_;
     std::chrono::milliseconds flush_interval_;
+    int retention_days_;
 
     std::mutex queue_mutex_;
     std::condition_variable cv_;
@@ -75,4 +78,5 @@ private:
     std::atomic<size_t> total_logs_ingested_{0};
     std::atomic<size_t> total_compressed_bytes_{0};
     std::atomic<size_t> total_uncompressed_bytes_{0};
+    std::chrono::steady_clock::time_point last_retention_check_;
 };

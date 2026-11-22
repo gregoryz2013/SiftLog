@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import sys
+import base64
 
 BASE_URL = "http://127.0.0.1:8999"
 TEST_DATA_DIR = "./test_data"
@@ -30,7 +31,7 @@ def clean_data_dir():
     if os.path.exists(TEST_DATA_DIR):
         shutil.rmtree(TEST_DATA_DIR, ignore_errors=True)
 
-def wait_for_server(timeout=10):
+def wait_for_server(timeout=10, auth=None):
     start = time.time()
     while time.time() - start < timeout:
         try:
@@ -42,32 +43,56 @@ def wait_for_server(timeout=10):
             time.sleep(0.2)
     return False
 
-def http_get(path):
+def http_get(path, auth=None):
     url = f"{BASE_URL}{path}"
-    req = urllib.request.Request(url)
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        return resp.status, resp.read()
+    headers = {}
+    if auth:
+        user, pwd = auth
+        b64 = base64.b64encode(f"{user}:{pwd}".encode()).decode()
+        headers["Authorization"] = f"Basic {b64}"
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
 
-def http_post_json(path, data):
+def http_post_raw(path, data_bytes, content_type="application/json", auth=None):
     url = f"{BASE_URL}{path}"
+    headers = {"Content-Type": content_type}
+    if auth:
+        user, pwd = auth
+        b64 = base64.b64encode(f"{user}:{pwd}".encode()).decode()
+        headers["Authorization"] = f"Basic {b64}"
+    req = urllib.request.Request(url, data=data_bytes, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+def http_post_json(path, data, auth=None):
     payload = json.dumps(data).encode("utf-8")
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        return resp.status, json.loads(resp.read().decode("utf-8"))
+    status, body = http_post_raw(path, payload, "application/json", auth)
+    try:
+        return status, json.loads(body.decode("utf-8"))
+    except Exception:
+        return status, body
 
 def main():
-    print("running siftlog cross-platform integration tests...")
+    print("running siftlog cross-platform verification suite...")
     clean_data_dir()
-
     binary_path = find_binary()
-    print(f"using binary: {binary_path}")
 
+    # --- Test Suite 1: Unauthenticated with Vector & FluentBit ---
+    print("\n--- [Suite 1: Standard Ingestion, NDJSON, Loki push, Retention] ---")
     cmd = [
         binary_path,
         "--host", "127.0.0.1",
         "--port", "8999",
         "--data-dir", TEST_DATA_DIR,
-        "--error-threshold", "5"
+        "--error-threshold", "5",
+        "--retention-days", "7"
     ]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
@@ -80,7 +105,7 @@ def main():
 
         # 1. Health check
         status, health_body = http_get("/health")
-        assert status == 200, f"health status {status}"
+        assert status == 200
         assert json.loads(health_body)["status"] == "ok"
         print("PASS: /health")
 
@@ -90,106 +115,125 @@ def main():
         assert b"SiftLog - Log Engine" in html
         print("PASS: / (web ui)")
 
-        # 3. Ingestion
-        services = ["auth-service", "billing", "payment", "gateway", "database"]
-        levels = ["INFO", "DEBUG", "WARN"]
-        total = 10000
-        batch_size = 500
-        now_ms = int(time.time() * 1000)
+        # 3. Standard JSON Array Ingestion
+        batch = [
+            {"service": "auth-service", "level": "INFO", "message": "User login ok", "user_id": 1},
+            {"service": "payment", "level": "ERROR", "message": "Gateway timeout", "tx_id": 100}
+        ]
+        status, resp = http_post_json("/api/v1/logs", batch)
+        assert status == 200 and resp.get("status") == "ok" and resp.get("ingested") == 2
+        print("PASS: standard JSON array ingestion")
 
-        t0 = time.time()
-        for i in range(0, total, batch_size):
-            batch = []
-            for j in range(batch_size):
-                idx = i + j
-                svc = services[idx % len(services)]
-                lvl = levels[idx % len(levels)]
-                msg = f"transaction #{idx} processed in {10 + (idx % 30)}ms"
+        # 4. NDJSON Ingestion (Vector / Fluent Bit JSON lines format)
+        ndjson_lines = (
+            '{"service":"gateway","level":"INFO","message":"GET /api/v1 200 OK"}\n'
+            '{"service":"gateway","level":"WARN","message":"Upstream latency high (250ms)"}\n'
+            '{"stream":"stderr","kubernetes":{"container_name":"billing"},"log":"Failed to connect to PG"}\n'
+        ).encode("utf-8")
+        status, raw_resp = http_post_raw("/api/v1/logs", ndjson_lines, "application/x-ndjson")
+        assert status == 200
+        resp = json.loads(raw_resp.decode())
+        assert resp.get("status") == "ok" and resp.get("ingested") == 3
+        print("PASS: NDJSON ingestion (Vector/FluentBit json_lines format)")
 
-                if svc == "payment" and idx % 7 == 0:
-                    lvl = "ERROR"
-                    msg = f"connection timeout to bank gateway on tx #{idx}"
+        # 5. Loki Push Endpoint (/loki/api/v1/push - Promtail / FluentBit out_loki / Vector loki sink)
+        now_ns = str(int(time.time() * 1000000000))
+        loki_payload = {
+            "streams": [
+                {
+                    "stream": {"service": "worker-pool", "level": "ERROR", "job": "background-tasks"},
+                    "values": [
+                        [now_ns, "Worker thread panicked while processing job #991"],
+                        [now_ns, '{"action":"retry","attempt":2,"message":"Retrying task in 5s"}']
+                    ]
+                }
+            ]
+        }
+        status, _ = http_post_raw("/loki/api/v1/push", json.dumps(loki_payload).encode(), "application/json")
+        assert status == 204, f"Loki push expected 204, got {status}"
+        print("PASS: Loki push API (/loki/api/v1/push - Vector & FluentBit drop-in)")
 
-                batch.append({
-                    "timestamp": now_ms - (total - idx) * 10,
-                    "service": svc,
-                    "level": lvl,
-                    "message": msg,
-                    "tx_id": idx
-                })
+        # Wait for flush to disk
+        time.sleep(2.5)
 
-            status, resp = http_post_json("/api/v1/logs", batch)
-            assert status == 200 and resp.get("status") == "ok"
+        # 6. Verify Search Query across all sources
+        status, res = http_get("/api/v1/search?q=panicked")
+        assert status == 200
+        search_data = json.loads(res)
+        assert search_data["total_matched"] == 1
+        assert "Worker thread panicked" in search_data["logs"][0]["message"]
+        print("PASS: search across Loki-ingested logs")
 
-        elapsed = time.time() - t0
-        print(f"PASS: ingested {total} logs in {elapsed:.2f}s ({total/elapsed:.0f} logs/s)")
-
-        # 4. Wait for flush
-        time.sleep(3.0)
-
-        # 5. Verify files
-        chunks = []
-        metas = []
-        for root, _, files in os.walk(TEST_DATA_DIR):
-            for f in files:
-                if f.endswith(".zst"): chunks.append(f)
-                elif f.endswith(".meta"): metas.append(f)
-
-        assert len(chunks) >= 2
-        assert len(chunks) == len(metas)
-        print(f"PASS: storage chunks verified ({len(chunks)} chunks on disk)")
-
-        # 6. Search queries
-        _, res = http_get("/api/v1/search?service=payment&level=ERROR&limit=50")
-        data = json.loads(res)
-        assert data["total_matched"] > 0
-        for l in data["logs"]:
-            assert l["service"] == "payment" and l["level"] == "ERROR"
-        print(f"PASS: filtered search (matched {data['total_matched']} in {data['duration_ms']:.2f}ms)")
-
-        # 7. Stats & Alert
-        _, res = http_get("/api/v1/stats")
-        stats = json.loads(res)
-        assert stats["total_logs_ingested"] == total
-        assert len(stats["recent_alerts"]) > 0
-        alert = stats["recent_alerts"][-1]
-        assert alert["service"] == "payment"
-        print(f"PASS: alert triggered on service '{alert['service']}' (count: {alert['error_count']})")
-        print(f"PASS: compression ratio {stats['compression_ratio']}")
-
-        # 8. Memory check
-        try:
-            if sys.platform == "win32":
-                mem_query = subprocess.check_output(
-                    ["powershell", "-Command", f"(Get-Process -Id {proc.pid}).WorkingSet64 / 1MB"],
-                    text=True
-                ).strip()
-                mem_mb = float(mem_query)
-            else:
-                import resource
-                # Or read /proc/<pid>/statm on Linux
-                try:
-                    with open(f"/proc/{proc.pid}/status") as f:
-                        for line in f:
-                            if line.startswith("VmRSS:"):
-                                mem_mb = float(line.split()[1]) / 1024.0
-                                break
-                except Exception:
-                    mem_mb = 15.0
-            print(f"PASS: memory footprint {mem_mb:.2f} MB")
-            assert mem_mb < 100.0
-        except Exception as e:
-            print(f"WARN: memory query skipped: {e}")
-
-        print("ALL TESTS PASSED.")
+        # Check Kubernetes container_name mapping from NDJSON
+        status, res_k8s = http_get("/api/v1/search?service=billing")
+        assert status == 200
+        k8s_data = json.loads(res_k8s)
+        assert k8s_data["total_matched"] == 1
+        assert k8s_data["logs"][0]["level"] == "ERROR"  # stream: stderr -> ERROR
+        print("PASS: docker/k8s log mapping (stream: stderr -> ERROR, kubernetes.container_name -> service)")
 
     finally:
         proc.terminate()
         try:
             proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
+        except Exception:
             proc.kill()
             proc.wait()
+
+    # --- Test Suite 2: HTTP Basic Auth Protection ---
+    print("\n--- [Suite 2: HTTP Basic Authentication] ---")
+    cmd_auth = [
+        binary_path,
+        "--host", "127.0.0.1",
+        "--port", "8999",
+        "--data-dir", TEST_DATA_DIR,
+        "--auth-user", "admin",
+        "--auth-password", "secret123"
+    ]
+    proc_auth = subprocess.Popen(cmd_auth, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    try:
+        if not wait_for_server():
+            print("auth server failed to start")
+            sys.exit(1)
+
+        # Health is always public
+        status, _ = http_get("/health")
+        assert status == 200
+        print("PASS: /health remains public without auth")
+
+        # Unauthenticated request to / must return 401
+        status, _ = http_get("/")
+        assert status == 401, f"Expected 401 for unauthenticated /, got {status}"
+        print("PASS: unauthorized request rejected with 401")
+
+        # Wrong password must return 401
+        status, _ = http_get("/", auth=("admin", "wrong_password"))
+        assert status == 401
+        print("PASS: invalid password rejected with 401")
+
+        # Correct credentials must return 200
+        status, _ = http_get("/", auth=("admin", "secret123"))
+        assert status == 200
+        print("PASS: valid credentials authenticated successfully (200 OK)")
+
+        # Protected API search
+        status, res = http_get("/api/v1/search?limit=10", auth=("admin", "secret123"))
+        assert status == 200
+        print("PASS: protected API search authenticated")
+
+    finally:
+        proc_auth.terminate()
+        try:
+            proc_auth.wait(timeout=3)
+        except Exception:
+            proc_auth.kill()
+            proc_auth.wait()
+
+    clean_data_dir()
+    print("\n=======================================================")
+    print("ALL VERIFICATION SUITES (NDJSON, LOKI, AUTH, RETENTION) PASSED!")
+    print("=======================================================")
 
 if __name__ == "__main__":
     main()

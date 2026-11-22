@@ -28,6 +28,9 @@ int main(int argc, char* argv[]) {
     std::string tg_token = get_env("SIFTLOG_TG_TOKEN", "");
     std::string tg_chat_id = get_env("SIFTLOG_TG_CHAT_ID", "");
     size_t error_threshold = 10;
+    int retention_days = 0;
+    std::string auth_user = get_env("SIFTLOG_AUTH_USER", "");
+    std::string auth_password = get_env("SIFTLOG_AUTH_PASSWORD", "");
 
     try {
         std::string p_env = get_env("SIFTLOG_PORT", "");
@@ -37,6 +40,11 @@ int main(int argc, char* argv[]) {
     try {
         std::string t_env = get_env("SIFTLOG_ERROR_THRESHOLD", "");
         if (!t_env.empty()) error_threshold = std::stoull(t_env);
+    } catch (...) {}
+
+    try {
+        std::string r_env = get_env("SIFTLOG_RETENTION_DAYS", "");
+        if (!r_env.empty()) retention_days = std::stoi(r_env);
     } catch (...) {}
 
     for (int i = 1; i < argc; ++i) {
@@ -53,12 +61,21 @@ int main(int argc, char* argv[]) {
             tg_chat_id = argv[++i];
         } else if (arg == "--error-threshold" && i + 1 < argc) {
             error_threshold = std::stoull(argv[++i]);
+        } else if (arg == "--retention-days" && i + 1 < argc) {
+            retention_days = std::stoi(argv[++i]);
+        } else if (arg == "--auth-user" && i + 1 < argc) {
+            auth_user = argv[++i];
+        } else if (arg == "--auth-password" && i + 1 < argc) {
+            auth_password = argv[++i];
         } else if (arg == "--help" || arg == "-h") {
             std::cout << "Usage: " << argv[0] << " [options]\n\n"
                       << "Options:\n"
                       << "  --host <ip>                  Listen host (default: 0.0.0.0, use 127.0.0.1 behind reverse proxy)\n"
                       << "  --port <port>                Listen port (default: 8080)\n"
                       << "  --data-dir <path>            Storage directory (default: ./data)\n"
+                      << "  --retention-days <days>      Auto-prune log chunks older than N days (default: 0 = disabled)\n"
+                      << "  --auth-user <username>       HTTP Basic Auth username for UI & API (optional)\n"
+                      << "  --auth-password <password>   HTTP Basic Auth password for UI & API (optional)\n"
                       << "  --tg-token <token>           Telegram Bot token for alerts\n"
                       << "  --tg-chat-id <id>            Telegram Chat ID for alerts\n"
                       << "  --error-threshold <n>        Error spike threshold per 60s window (default: 10)\n"
@@ -70,12 +87,18 @@ int main(int argc, char* argv[]) {
     std::cout << "[siftlog] version 0.1.0" << std::endl;
     std::cout << "[siftlog] host: " << host << ", port: " << port << std::endl;
     std::cout << "[siftlog] data_dir: " << data_dir << std::endl;
+    if (retention_days > 0) {
+        std::cout << "[siftlog] retention: " << retention_days << " days" << std::endl;
+    } else {
+        std::cout << "[siftlog] retention: disabled (infinite)" << std::endl;
+    }
+    std::cout << "[siftlog] auth: " << (auth_user.empty() ? "disabled (open)" : "basic auth enabled") << std::endl;
     std::cout << "[siftlog] error_threshold: " << error_threshold << " errors/60s" << std::endl;
     std::cout << "[siftlog] telegram alerts: " << (tg_token.empty() ? "disabled" : "enabled") << std::endl;
 
-    auto storage = std::make_shared<LogStorage>(data_dir);
+    auto storage = std::make_shared<LogStorage>(data_dir, 5000, std::chrono::milliseconds(2000), retention_days);
     auto alert_manager = std::make_shared<AlertManager>(tg_token, tg_chat_id, error_threshold);
-    auto server = std::make_shared<ApiServer>(storage, alert_manager, host, port);
+    auto server = std::make_shared<ApiServer>(storage, alert_manager, host, port, auth_user, auth_password);
 
     g_shutdown_handler = [&]() {
         server->stop();

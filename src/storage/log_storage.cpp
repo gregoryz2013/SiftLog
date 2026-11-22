@@ -13,12 +13,16 @@ namespace fs = std::filesystem;
 
 LogStorage::LogStorage(std::string data_dir,
                        size_t max_batch_size,
-                       std::chrono::milliseconds flush_interval)
+                       std::chrono::milliseconds flush_interval,
+                       int retention_days)
     : data_dir_(std::move(data_dir)),
       max_batch_size_(max_batch_size),
-      flush_interval_(flush_interval) {
+      flush_interval_(flush_interval),
+      retention_days_(retention_days),
+      last_retention_check_(std::chrono::steady_clock::now()) {
     fs::create_directories(data_dir_);
     load_existing_chunks();
+    enforce_retention();
     flusher_thread_ = std::thread(&LogStorage::background_flusher, this);
 }
 
@@ -83,6 +87,52 @@ void LogStorage::flush() {
     }
 }
 
+void LogStorage::enforce_retention() {
+    if (retention_days_ <= 0) return;
+
+    int64_t now_ms = LogEntry::now_ms();
+    int64_t cutoff_ms = now_ms - (static_cast<int64_t>(retention_days_) * 24 * 3600 * 1000LL);
+
+    std::lock_guard<std::mutex> lock(metadata_mutex_);
+    size_t pruned_count = 0;
+    std::unordered_set<std::string> checked_dirs;
+
+    auto it = chunks_.begin();
+    while (it != chunks_.end()) {
+        if (it->max_ts < cutoff_ms) {
+            // Delete files
+            std::error_code ec;
+            if (fs::exists(it->chunk_file_path, ec)) {
+                fs::remove(it->chunk_file_path, ec);
+            }
+            if (fs::exists(it->meta_file_path, ec)) {
+                checked_dirs.insert(fs::path(it->meta_file_path).parent_path().string());
+                fs::remove(it->meta_file_path, ec);
+            }
+
+            total_compressed_bytes_ -= it->compressed_bytes;
+            total_uncompressed_bytes_ -= it->uncompressed_bytes;
+            it = chunks_.erase(it);
+            ++pruned_count;
+        } else {
+            ++it;
+        }
+    }
+
+    // Clean up empty parent date directories
+    for (const auto& dir : checked_dirs) {
+        std::error_code ec;
+        if (fs::exists(dir, ec) && fs::is_empty(dir, ec)) {
+            fs::remove(dir, ec);
+        }
+    }
+
+    if (pruned_count > 0) {
+        std::cout << "[retention] pruned " << pruned_count
+                  << " chunks older than " << retention_days_ << " days" << std::endl;
+    }
+}
+
 void LogStorage::background_flusher() {
     while (running_) {
         std::vector<LogEntry> batch_to_flush;
@@ -101,6 +151,14 @@ void LogStorage::background_flusher() {
 
         if (!batch_to_flush.empty()) {
             flush_batch_to_disk(batch_to_flush);
+        }
+
+        // Check retention policy periodically (every 60s)
+        auto now = std::chrono::steady_clock::now();
+        if (retention_days_ > 0 &&
+            std::chrono::duration_cast<std::chrono::seconds>(now - last_retention_check_).count() >= 60) {
+            last_retention_check_ = now;
+            enforce_retention();
         }
     }
 }

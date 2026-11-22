@@ -7,13 +7,63 @@
 ApiServer::ApiServer(std::shared_ptr<LogStorage> storage,
                      std::shared_ptr<AlertManager> alert_manager,
                      std::string host,
-                     int port)
+                     int port,
+                     std::string auth_user,
+                     std::string auth_password)
     : storage_(std::move(storage)),
       alert_manager_(std::move(alert_manager)),
       host_(std::move(host)),
       port_(port),
+      auth_user_(std::move(auth_user)),
+      auth_password_(std::move(auth_password)),
       start_time_(std::chrono::steady_clock::now()) {
     setup_routes();
+}
+
+std::string ApiServer::base64_decode(std::string_view in) {
+    static const std::string b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::vector<int> T(256, -1);
+    for (int i = 0; i < 64; ++i) {
+        T[static_cast<unsigned char>(b64[i])] = i;
+    }
+
+    std::string out;
+    int val = 0, valb = -8;
+    for (unsigned char c : in) {
+        if (c == '=') break;
+        if (T[c] == -1) continue;
+        val = (val << 6) + T[c];
+        valb += 6;
+        if (valb >= 0) {
+            out.push_back(static_cast<char>((val >> valb) & 0xFF));
+            valb -= 8;
+        }
+    }
+    return out;
+}
+
+bool ApiServer::check_auth(const httplib::Request& req, httplib::Response& res) {
+    if (auth_user_.empty()) return true;
+
+    if (req.has_header("Authorization")) {
+        std::string auth = req.get_header_value("Authorization");
+        if (auth.rfind("Basic ", 0) == 0) {
+            std::string decoded = base64_decode(auth.substr(6));
+            auto colon = decoded.find(':');
+            if (colon != std::string::npos) {
+                std::string u = decoded.substr(0, colon);
+                std::string p = decoded.substr(colon + 1);
+                if (u == auth_user_ && p == auth_password_) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    res.status = 401;
+    res.set_header("WWW-Authenticate", "Basic realm=\"SiftLog\"");
+    res.set_content(R"({"error":"unauthorized"})", "application/json");
+    return false;
 }
 
 std::string ApiServer::get_client_ip(const httplib::Request& req) {
@@ -29,7 +79,6 @@ std::string ApiServer::get_client_ip(const httplib::Request& req) {
 }
 
 void ApiServer::setup_routes() {
-    // Limit request payload to 50MB to prevent memory exhaustion / DoS attacks
     svr_.set_payload_max_length(50 * 1024 * 1024);
 
     svr_.Options(".*", [](const httplib::Request&, httplib::Response& res) {
@@ -39,7 +88,7 @@ void ApiServer::setup_routes() {
         res.status = 204;
     });
 
-    // Health check for load balancers and reverse proxies (nginx upstream, apache proxy_balancer)
+    // Health checks (always public, no auth required)
     svr_.Get("/health", [](const httplib::Request&, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_header("Cache-Control", "no-cache");
@@ -51,14 +100,16 @@ void ApiServer::setup_routes() {
         res.set_content(R"({"status":"ok"})", "application/json");
     });
 
-    // Embedded Web Dashboard
-    svr_.Get("/", [](const httplib::Request&, httplib::Response& res) {
+    // Web Dashboard
+    svr_.Get("/", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
         res.set_header("Cache-Control", "no-cache");
         res.set_content(INDEX_HTML.data(), INDEX_HTML.size(), "text/html; charset=utf-8");
     });
 
-    // Ingestion API
+    // Ingestion API (JSON array, single object, or NDJSON from Vector/FluentBit)
     svr_.Post("/api/v1/logs", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_header("Cache-Control", "no-cache");
 
@@ -68,44 +119,65 @@ void ApiServer::setup_routes() {
             return;
         }
 
-        nlohmann::json j;
-        try {
-            j = nlohmann::json::parse(req.body);
-        } catch (const std::exception& e) {
-            res.status = 400;
-            nlohmann::json err = {{"error", "invalid json"}, {"detail", e.what()}};
-            res.set_content(err.dump(), "application/json");
-            return;
-        }
-
         std::vector<LogEntry> entries;
-        if (j.is_array()) {
-            entries.reserve(j.size());
-            for (const auto& item : j) {
-                if (item.is_object()) {
-                    LogEntry entry = LogEntry::from_json(item);
-                    alert_manager_->record_log(entry);
-                    entries.push_back(std::move(entry));
-                }
-            }
-        } else if (j.is_object()) {
-            if (j.contains("logs") && j["logs"].is_array()) {
-                entries.reserve(j["logs"].size());
-                for (const auto& item : j["logs"]) {
+        bool parsed_json = false;
+
+        // Try standard JSON parse
+        try {
+            nlohmann::json j = nlohmann::json::parse(req.body);
+            parsed_json = true;
+            if (j.is_array()) {
+                entries.reserve(j.size());
+                for (const auto& item : j) {
                     if (item.is_object()) {
                         LogEntry entry = LogEntry::from_json(item);
                         alert_manager_->record_log(entry);
                         entries.push_back(std::move(entry));
                     }
                 }
-            } else {
-                LogEntry entry = LogEntry::from_json(j);
-                alert_manager_->record_log(entry);
-                entries.push_back(std::move(entry));
+            } else if (j.is_object()) {
+                if (j.contains("logs") && j["logs"].is_array()) {
+                    entries.reserve(j["logs"].size());
+                    for (const auto& item : j["logs"]) {
+                        if (item.is_object()) {
+                            LogEntry entry = LogEntry::from_json(item);
+                            alert_manager_->record_log(entry);
+                            entries.push_back(std::move(entry));
+                        }
+                    }
+                } else {
+                    LogEntry entry = LogEntry::from_json(j);
+                    alert_manager_->record_log(entry);
+                    entries.push_back(std::move(entry));
+                }
             }
-        } else {
+        } catch (...) {
+            parsed_json = false;
+        }
+
+        // Fallback: parse NDJSON (Newline-Delimited JSON)
+        if (!parsed_json) {
+            std::string_view sv(req.body);
+            size_t start = 0;
+            while (start < sv.size()) {
+                size_t end = sv.find('\n', start);
+                if (end == std::string_view::npos) end = sv.size();
+                std::string_view line = sv.substr(start, end - start);
+                start = end + 1;
+                if (line.empty()) continue;
+
+                try {
+                    nlohmann::json item = nlohmann::json::parse(line);
+                    LogEntry entry = LogEntry::from_json(item);
+                    alert_manager_->record_log(entry);
+                    entries.push_back(std::move(entry));
+                } catch (...) {}
+            }
+        }
+
+        if (entries.empty()) {
             res.status = 400;
-            res.set_content(R"({"error":"expected object or array"})", "application/json");
+            res.set_content(R"({"error":"could not parse valid json logs"})", "application/json");
             return;
         }
 
@@ -120,8 +192,88 @@ void ApiServer::setup_routes() {
         res.set_content(response.dump(), "application/json");
     });
 
+    // Loki-compatible push API (Standard for Fluent Bit out_loki, Vector loki sink, Promtail)
+    svr_.Post("/loki/api/v1/push", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        nlohmann::json j;
+        try {
+            j = nlohmann::json::parse(req.body);
+        } catch (...) {
+            res.status = 400;
+            res.set_content("Invalid Loki JSON", "text/plain");
+            return;
+        }
+
+        std::vector<LogEntry> entries;
+        if (j.contains("streams") && j["streams"].is_array()) {
+            for (const auto& stream_obj : j["streams"]) {
+                std::string stream_service = "default";
+                std::string stream_level = "INFO";
+
+                if (stream_obj.contains("stream") && stream_obj["stream"].is_object()) {
+                    const auto& st = stream_obj["stream"];
+                    if (st.contains("service") && st["service"].is_string()) stream_service = st["service"];
+                    else if (st.contains("app") && st["app"].is_string()) stream_service = st["app"];
+                    else if (st.contains("job") && st["job"].is_string()) stream_service = st["job"];
+                    else if (st.contains("container") && st["container"].is_string()) stream_service = st["container"];
+
+                    if (st.contains("level") && st["level"].is_string()) stream_level = LogEntry::normalize_level(st["level"]);
+                }
+
+                if (stream_obj.contains("values") && stream_obj["values"].is_array()) {
+                    for (const auto& val_pair : stream_obj["values"]) {
+                        if (val_pair.is_array() && val_pair.size() >= 2) {
+                            int64_t ts_ms = LogEntry::now_ms();
+                            std::string ts_str = val_pair[0].is_string() ? val_pair[0].get<std::string>() : val_pair[0].dump();
+                            try {
+                                int64_t ns = std::stoll(ts_str);
+                                ts_ms = ns / 1000000LL;
+                            } catch (...) {}
+
+                            std::string line = val_pair[1].is_string() ? val_pair[1].get<std::string>() : val_pair[1].dump();
+
+                            LogEntry entry;
+                            entry.timestamp = ts_ms;
+                            entry.service = stream_service;
+                            entry.level = stream_level;
+
+                            // Check if line itself is JSON
+                            try {
+                                nlohmann::json line_j = nlohmann::json::parse(line);
+                                entry = LogEntry::from_json(line_j);
+                                if (entry.service == "default") entry.service = stream_service;
+                                if (entry.timestamp <= 0) entry.timestamp = ts_ms;
+                            } catch (...) {
+                                entry.message = line;
+                                entry.raw_json = nlohmann::json{
+                                    {"timestamp", ts_ms},
+                                    {"service", stream_service},
+                                    {"level", stream_level},
+                                    {"message", line}
+                                }.dump();
+                            }
+
+                            alert_manager_->record_log(entry);
+                            entries.push_back(std::move(entry));
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!entries.empty()) {
+            storage_->append_batch(entries);
+        }
+
+        // Standard Loki push response is 204 No Content
+        res.status = 204;
+    });
+
     // Search API
     svr_.Get("/api/v1/search", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_header("Cache-Control", "no-cache");
 
@@ -172,7 +324,8 @@ void ApiServer::setup_routes() {
     });
 
     // Server Stats API
-    svr_.Get("/api/v1/stats", [this](const httplib::Request&, httplib::Response& res) {
+    svr_.Get("/api/v1/stats", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_header("Cache-Control", "no-cache");
 
@@ -213,6 +366,9 @@ void ApiServer::setup_routes() {
 
 void ApiServer::start() {
     std::cout << "[server] listening on " << host_ << ":" << port_ << std::endl;
+    if (!auth_user_.empty()) {
+        std::cout << "[server] basic auth: enabled (user: " << auth_user_ << ")" << std::endl;
+    }
     svr_.listen(host_, port_);
 }
 

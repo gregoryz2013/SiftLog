@@ -25,8 +25,16 @@ std::string PiiMasker::mask_string(const std::string& input) const {
         result = std::regex_replace(result, jwt_regex_, "[MASKED_JWT]");
     }
 
-    // 2. Mask passwords, secrets, and API keys
-    result = std::regex_replace(result, secret_regex_, "$1$2 $3[MASKED_SECRET]$5");
+    // 2. Fast check for keywords before executing complex secret regex
+    auto contains_ci = [](std::string_view str, std::string_view sub) {
+        auto it = std::search(str.begin(), str.end(), sub.begin(), sub.end(),
+            [](char ch1, char ch2) { return std::tolower(static_cast<unsigned char>(ch1)) == std::tolower(static_cast<unsigned char>(ch2)); });
+        return it != str.end();
+    };
+
+    if (contains_ci(result, "pass") || contains_ci(result, "secret") || contains_ci(result, "key") || contains_ci(result, "token")) {
+        result = std::regex_replace(result, secret_regex_, "$1$2 $3[MASKED_SECRET]$5");
+    }
 
     // 3. Fast check for digits before checking cards, passport, and snils
     bool has_digits = std::any_of(result.begin(), result.end(), [](unsigned char c) {

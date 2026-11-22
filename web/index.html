@@ -3,542 +3,518 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SiftLog Enterprise - Observability & Distributed Tracing</title>
+  <title>SiftLog - Log Engine</title>
   <style>
     :root {
-      --bg: #07090e;
-      --bg-surface: #0e131f;
-      --card-bg: #111827;
-      --card-border: #1e293b;
-      --header-bg: rgba(15, 23, 42, 0.85);
-      --text: #f8fafc;
-      --text-muted: #94a3b8;
-      --accent: #3b82f6;
-      --accent-hover: #2563eb;
-      --accent-glow: rgba(59, 130, 246, 0.25);
-      --info: #38bdf8;
-      --warn: #f59e0b;
-      --error: #ef4444;
-      --debug: #a855f7;
-      --success: #10b981;
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --bg: #090d16;
+      --surface: #0f1422;
+      --surface-elevated: #151c2e;
+      --border: #1e2638;
+      --border-subtle: #171e2e;
+      --border-accent: #2c3852;
+      --text: #e2e8f0;
+      --text-muted: #7c8ba1;
+      --text-dim: #4b586e;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --color-info: #38bdf8;
+      --color-warn: #eab308;
+      --color-error: #ef4444;
+      --color-debug: #a855f7;
+      --color-success: #10b981;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    *::-webkit-scrollbar,
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
     body {
       background: var(--bg);
       color: var(--text);
       font-family: var(--sans);
-      font-size: 13px;
-      line-height: 1.5;
+      font-size: 12px;
+      line-height: 1.45;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
     }
 
     /* Top Navigation Header */
     header {
-      background: var(--header-bg);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--card-border);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
       position: sticky;
       top: 0;
       z-index: 100;
-      padding: 0.55rem 1.25rem;
+      padding: 0 1rem;
+      height: 44px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 1rem;
+      gap: 1.5rem;
     }
 
-    .brand-section {
+    .header-left {
       display: flex;
       align-items: center;
-      gap: 0.65rem;
+      gap: 0.75rem;
     }
-    .brand-logo {
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      font-weight: 800;
-      font-size: 1.15rem;
-      letter-spacing: -0.02em;
+    .brand {
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 0.95rem;
+      letter-spacing: 0.08em;
       color: #fff;
     }
-    .brand-logo svg {
-      width: 22px;
-      height: 22px;
-      fill: none;
-      stroke: #38bdf8;
-      stroke-width: 2;
+    .tag {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
-    .badge-tag {
-      background: #1e293b;
-      color: #94a3b8;
-      border: 1px solid #334155;
-      padding: 0.15rem 0.45rem;
-      border-radius: 4px;
-      font-size: 0.68rem;
-      font-weight: 600;
-      letter-spacing: 0.03em;
-    }
-    .badge-enterprise {
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2));
-      color: #c084fc;
-      border: 1px solid rgba(168, 85, 247, 0.4);
-    }
-    .badge-finops {
-      background: rgba(16, 185, 129, 0.15);
-      color: #34d399;
-      border: 1px solid rgba(16, 185, 129, 0.4);
+    .tag-accent {
+      color: var(--color-info);
+      border-color: rgba(56, 189, 248, 0.3);
+      background: rgba(56, 189, 248, 0.05);
     }
 
-    /* Live Header Metrics */
-    .metrics-bar {
+    /* System Stats Strip */
+    .metrics-strip {
       display: flex;
       align-items: center;
       gap: 1.5rem;
+      font-family: var(--mono);
+      font-size: 0.72rem;
     }
-    .metric-item {
+    .metric {
       display: flex;
-      flex-direction: column;
+      align-items: baseline;
+      gap: 0.35rem;
     }
-    .metric-label {
-      font-size: 0.62rem;
+    .metric-name {
+      color: var(--text-dim);
       text-transform: uppercase;
-      color: var(--text-muted);
+      font-size: 0.62rem;
       letter-spacing: 0.05em;
     }
-    .metric-value {
-      font-family: var(--mono);
-      font-weight: 700;
-      font-size: 0.85rem;
+    .metric-val {
       color: var(--text);
-    }
-    .metric-rate {
-      color: #38bdf8;
+      font-weight: 600;
     }
 
-    /* Header Controls */
-    .header-controls {
+    /* Header Actions */
+    .header-right {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.4rem;
     }
+
     .btn {
       background: var(--accent);
       color: #fff;
-      border: none;
-      padding: 0.35rem 0.75rem;
-      border-radius: 6px;
+      border: 1px solid transparent;
+      padding: 0.3rem 0.65rem;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-family: var(--sans);
       font-weight: 500;
-      font-size: 0.8rem;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 0.35rem;
-      transition: all 0.15s ease;
+      gap: 0.3rem;
+      transition: background 0.12s ease;
       user-select: none;
     }
     .btn:hover { background: var(--accent-hover); }
     .btn-secondary {
-      background: #1e293b;
+      background: var(--surface-elevated);
       color: var(--text);
-      border: 1px solid #334155;
+      border: 1px solid var(--border);
     }
-    .btn-secondary:hover { background: #334155; }
+    .btn-secondary:hover {
+      background: #1c253d;
+      border-color: var(--border-accent);
+    }
     .btn-ghost {
       background: transparent;
       color: var(--text-muted);
       border: 1px solid transparent;
     }
     .btn-ghost:hover {
-      background: #1e293b;
+      background: var(--surface-elevated);
       color: var(--text);
-      border-color: #334155;
+      border-color: var(--border);
     }
 
-    .live-toggle {
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      padding: 0.35rem 0.75rem;
-      border-radius: 6px;
+    .btn-live {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      padding: 0.25rem 0.55rem;
+      border: 1px solid var(--border);
+      background: var(--surface-elevated);
+      color: var(--text-muted);
+      border-radius: 4px;
       cursor: pointer;
-      user-select: none;
-      font-size: 0.78rem;
-      font-weight: 600;
-      transition: all 0.15s ease;
     }
-    .live-toggle:hover { border-color: #374151; }
-    .pulse-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: #64748b;
-      transition: all 0.2s ease;
-    }
-    .live-active {
-      border-color: rgba(16, 185, 129, 0.5);
-      background: rgba(16, 185, 129, 0.1);
-      color: #34d399;
-    }
-    .live-active .pulse-dot {
-      background: var(--success);
-      box-shadow: 0 0 8px var(--success);
+    .btn-live.active {
+      color: var(--color-success);
+      border-color: rgba(16, 185, 129, 0.4);
+      background: rgba(16, 185, 129, 0.08);
     }
 
-    /* Main Workspace Layout */
-    .app-layout {
+    /* Workspace Layout */
+    .workspace {
       display: flex;
       flex: 1;
-      height: calc(100vh - 49px);
+      height: calc(100vh - 44px);
       overflow: hidden;
     }
 
-    /* Sidebar Facets */
+    /* Sidebar */
     .sidebar {
-      width: 260px;
-      background: var(--bg-surface);
-      border-right: 1px solid var(--card-border);
+      width: 230px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      transition: width 0.2s ease;
-      overflow-y: auto;
       flex-shrink: 0;
+      overflow-y: auto;
+      transition: width 0.15s ease;
     }
     .sidebar.collapsed {
       width: 0;
       border-right: none;
       overflow: hidden;
     }
-    .sidebar-section {
-      padding: 0.85rem 1rem;
-      border-bottom: 1px solid var(--card-border);
+    .sidebar-block {
+      padding: 0.75rem 0.85rem;
+      border-bottom: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
+      gap: 0.4rem;
     }
-    .sidebar-title {
-      font-size: 0.68rem;
+    .sidebar-heading {
+      font-family: var(--mono);
+      font-size: 0.62rem;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-muted);
-      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      font-weight: 600;
       display: flex;
       justify-content: space-between;
-      align-items: center;
     }
-    .preset-list, .facet-list {
+    .nav-list {
       display: flex;
       flex-direction: column;
-      gap: 0.2rem;
+      gap: 0.15rem;
     }
-    .preset-btn, .facet-btn {
+    .nav-item {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0.35rem 0.55rem;
-      border-radius: 5px;
-      font-size: 0.78rem;
+      padding: 0.28rem 0.5rem;
+      border-radius: 3px;
+      font-size: 0.72rem;
       color: var(--text-muted);
       background: transparent;
       border: none;
       cursor: pointer;
       text-align: left;
-      transition: all 0.12s ease;
+      font-family: var(--mono);
     }
-    .preset-btn:hover, .facet-btn:hover {
-      background: #1e293b;
+    .nav-item:hover {
+      background: var(--surface-elevated);
       color: var(--text);
     }
-    .preset-btn.active, .facet-btn.active {
-      background: rgba(59, 130, 246, 0.15);
-      color: #60a5fa;
+    .nav-item.active {
+      background: rgba(37, 99, 235, 0.12);
+      color: var(--color-info);
       font-weight: 600;
     }
-    .facet-count {
-      font-family: var(--mono);
-      font-size: 0.7rem;
-      background: #1e293b;
-      padding: 0.05rem 0.35rem;
-      border-radius: 4px;
-      color: var(--text-muted);
+    .counter {
+      font-size: 0.65rem;
+      color: var(--text-dim);
     }
 
-    /* Main Content Area */
-    .main-content {
+    /* Main Area */
+    .viewport {
       flex: 1;
       display: flex;
       flex-direction: column;
       overflow-y: auto;
-      padding: 0.85rem 1.25rem;
-      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      gap: 0.6rem;
     }
 
-    /* RCA Incident Banner */
-    .rca-banner {
+    /* Incident Notification Strip */
+    .incident-strip {
       display: none;
-      background: linear-gradient(90deg, rgba(220, 38, 38, 0.25), rgba(153, 27, 27, 0.15));
-      border: 1px solid #ef4444;
-      border-radius: 8px;
-      padding: 0.85rem 1.25rem;
-      align-items: center;
-      justify-content: space-between;
-      gap: 1rem;
-      box-shadow: 0 4px 16px rgba(239, 68, 68, 0.25);
-      animation: pulse-border 2s infinite ease-in-out;
-    }
-    @keyframes pulse-border {
-      0%, 100% { border-color: #ef4444; }
-      50% { border-color: #f87171; box-shadow: 0 4px 20px rgba(239, 68, 68, 0.35); }
-    }
-    .rca-banner.active { display: flex; }
-    .rca-info { display: flex; flex-direction: column; gap: 0.25rem; }
-    .rca-topline { display: flex; align-items: center; gap: 0.5rem; }
-    .rca-badge {
-      background: #dc2626;
-      color: #fff;
-      font-weight: 800;
-      font-size: 0.68rem;
-      padding: 0.15rem 0.45rem;
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.4);
       border-radius: 4px;
+      padding: 0.65rem 0.9rem;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+    }
+    .incident-strip.active { display: flex; }
+    .incident-body {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .incident-title {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--color-error);
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
-    .rca-title { font-weight: 700; font-size: 0.92rem; color: #fecaca; }
-    .rca-details { color: #fca5a5; font-family: var(--mono); font-size: 0.8rem; }
-    .rca-cascade { color: #fed7aa; font-size: 0.75rem; }
-    .rca-actions { display: flex; gap: 0.5rem; }
+    .incident-desc {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: #fca5a5;
+    }
+    .incident-cascade {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
 
-    /* Search & Filter Toolbar */
-    .search-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 8px;
-      padding: 0.75rem 1rem;
+    /* Query & Filter Panel */
+    .query-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.65rem 0.85rem;
       display: flex;
       flex-direction: column;
-      gap: 0.65rem;
-    }
-    .search-row {
-      display: flex;
       gap: 0.5rem;
+    }
+    .search-input-row {
+      display: flex;
+      gap: 0.4rem;
       align-items: center;
     }
-    .search-input-wrapper {
-      position: relative;
+    .search-input {
       flex: 1;
-    }
-    .search-icon {
-      position: absolute;
-      left: 0.75rem;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--text-muted);
-      pointer-events: none;
-    }
-    #query-input {
-      width: 100%;
-      background: #090e17;
-      border: 1px solid var(--card-border);
-      border-radius: 6px;
-      padding: 0.5rem 0.75rem 0.5rem 2.2rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.4rem 0.65rem;
       color: var(--text);
       font-family: var(--mono);
-      font-size: 0.85rem;
+      font-size: 0.78rem;
       outline: none;
-      transition: all 0.15s ease;
     }
-    #query-input:focus {
+    .search-input:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 2px var(--accent-glow);
     }
-    .clear-search-btn {
-      position: absolute;
-      right: 0.6rem;
-      top: 50%;
-      transform: translateY(-50%);
+    .search-btn-clear {
       background: transparent;
-      border: none;
+      border: 1px solid var(--border);
       color: var(--text-muted);
-      cursor: pointer;
-      font-size: 0.9rem;
-      padding: 0.2rem;
-    }
-    .clear-search-btn:hover { color: #fff; }
-
-    .quick-chips {
-      display: flex;
-      gap: 0.4rem;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    .quick-chip {
-      background: #1e293b;
-      color: #94a3b8;
-      border: 1px solid #334155;
-      padding: 0.15rem 0.45rem;
       border-radius: 4px;
-      font-size: 0.7rem;
-      font-family: var(--mono);
+      padding: 0.35rem 0.55rem;
       cursor: pointer;
-      transition: all 0.12s ease;
+      font-family: var(--mono);
+      font-size: 0.7rem;
     }
-    .quick-chip:hover {
-      background: #334155;
-      color: #fff;
-    }
+    .search-btn-clear:hover { color: #fff; border-color: var(--border-accent); }
 
-    .filter-secondary-row {
+    .query-controls {
       display: flex;
-      gap: 1rem;
+      justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
+      gap: 0.5rem;
+      font-size: 0.72rem;
     }
-    .filter-item {
+    .filter-group {
       display: flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.35rem;
     }
     .filter-label {
-      color: var(--text-muted);
-      font-size: 0.7rem;
+      font-family: var(--mono);
+      font-size: 0.62rem;
       text-transform: uppercase;
-      font-weight: 700;
+      color: var(--text-dim);
     }
     select {
-      background: #090e17;
-      border: 1px solid var(--card-border);
-      border-radius: 6px;
-      padding: 0.35rem 0.55rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0.25rem 0.45rem;
       color: var(--text);
-      font-size: 0.78rem;
+      font-family: var(--mono);
+      font-size: 0.72rem;
       outline: none;
     }
     select:focus { border-color: var(--accent); }
 
     .level-pills {
       display: flex;
-      gap: 0.25rem;
+      gap: 0.2rem;
     }
     .level-pill {
-      padding: 0.2rem 0.5rem;
-      border-radius: 4px;
-      font-size: 0.72rem;
-      font-weight: 700;
-      cursor: pointer;
-      border: 1px solid #334155;
-      background: #1e293b;
+      font-family: var(--mono);
+      font-size: 0.66rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      background: var(--surface-elevated);
       color: var(--text-muted);
+      cursor: pointer;
       user-select: none;
-      transition: all 0.15s ease;
     }
-    .level-pill:hover { background: #334155; }
     .level-pill.active {
       background: var(--accent);
       border-color: var(--accent);
       color: #fff;
     }
-    .level-pill.active[data-lvl="ERROR"] { background: #dc2626; border-color: #dc2626; }
-    .level-pill.active[data-lvl="WARN"] { background: #d97706; border-color: #d97706; }
-    .level-pill.active[data-lvl="INFO"] { background: #2563eb; border-color: #2563eb; }
 
-    /* Interactive Timeline Histogram Card */
-    .hist-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 8px;
-      padding: 0.65rem 1rem;
+    /* Time-Series Chart Card */
+    .chart-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.6rem 0.85rem;
       display: flex;
       flex-direction: column;
-      gap: 0.4rem;
+      gap: 0.35rem;
       position: relative;
     }
-    .hist-header {
+    .chart-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
     }
-    .hist-title {
-      font-size: 0.72rem;
+    .chart-title {
+      font-family: var(--mono);
+      font-size: 0.68rem;
       text-transform: uppercase;
-      color: var(--text-muted);
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-    .hist-legend {
-      display: flex;
-      gap: 0.85rem;
-      font-size: 0.7rem;
-      color: var(--text-muted);
-    }
-    .legend-item { display: flex; align-items: center; gap: 0.35rem; }
-    .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
-    #hist-canvas {
-      width: 100%;
-      height: 52px;
-      display: block;
-      cursor: crosshair;
-    }
-    .hist-tooltip {
-      position: absolute;
-      background: #0f172a;
-      border: 1px solid #334155;
-      border-radius: 5px;
-      padding: 0.35rem 0.55rem;
-      font-size: 0.7rem;
-      font-family: var(--mono);
-      color: #f1f5f9;
-      pointer-events: none;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-      z-index: 50;
-      display: none;
-      white-space: nowrap;
-    }
-
-    /* Logs Table Card */
-    .table-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 8px;
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      min-height: 400px;
-    }
-    .table-toolbar {
-      padding: 0.55rem 1rem;
-      border-bottom: 1px solid var(--card-border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      background: #0d131f;
-    }
-    .table-stats {
-      display: flex;
-      gap: 1.25rem;
-      font-size: 0.75rem;
-      color: var(--text-muted);
-      font-family: var(--mono);
-    }
-    .table-options {
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
       display: flex;
       align-items: center;
       gap: 0.5rem;
     }
-    .table-container {
+    .chart-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+    }
+    .chart-type-toggle {
+      display: flex;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .chart-type-btn {
+      background: var(--surface-elevated);
+      color: var(--text-muted);
+      border: none;
+      padding: 0.15rem 0.45rem;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      cursor: pointer;
+    }
+    .chart-type-btn.active {
+      background: var(--accent);
+      color: #fff;
+    }
+    .chart-legend {
+      display: flex;
+      gap: 0.75rem;
+      color: var(--text-muted);
+      font-size: 0.66rem;
+      font-family: var(--mono);
+    }
+    .legend-item { display: flex; align-items: center; gap: 0.3rem; }
+    .legend-box { width: 7px; height: 7px; border-radius: 1px; }
+
+    #chart-canvas {
+      width: 100%;
+      height: 64px;
+      display: block;
+      cursor: crosshair;
+    }
+    .chart-tooltip {
+      position: absolute;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-accent);
+      border-radius: 3px;
+      padding: 0.3rem 0.5rem;
+      font-size: 0.68rem;
+      font-family: var(--mono);
+      color: var(--text);
+      pointer-events: none;
+      display: none;
+      z-index: 50;
+      white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+
+    /* Logs Table Panel */
+    .table-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 380px;
+    }
+    .table-topbar {
+      padding: 0.45rem 0.85rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--surface-elevated);
+      font-family: var(--mono);
+      font-size: 0.7rem;
+    }
+    .table-meta {
+      display: flex;
+      gap: 1.25rem;
+      color: var(--text-dim);
+    }
+    .table-meta strong {
+      color: var(--text);
+    }
+    .table-options {
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+    }
+
+    .table-scroll {
       flex: 1;
       overflow-y: auto;
-      max-height: 560px;
+      max-height: 580px;
     }
     table {
       width: 100%;
@@ -546,299 +522,281 @@
       text-align: left;
     }
     th {
-      background: #090e17;
-      padding: 0.5rem 0.75rem;
-      font-size: 0.68rem;
+      background: var(--surface);
+      padding: 0.4rem 0.65rem;
+      font-family: var(--mono);
+      font-size: 0.64rem;
       text-transform: uppercase;
-      color: var(--text-muted);
+      color: var(--text-dim);
       letter-spacing: 0.05em;
       position: sticky;
       top: 0;
       z-index: 10;
-      border-bottom: 1px solid var(--card-border);
+      border-bottom: 1px solid var(--border);
     }
     td {
-      padding: 0.4rem 0.75rem;
-      border-bottom: 1px solid #172033;
+      padding: 0.32rem 0.65rem;
+      border-bottom: 1px solid var(--border-subtle);
       font-family: var(--mono);
-      font-size: 0.78rem;
+      font-size: 0.74rem;
       vertical-align: top;
     }
     tr.log-row {
       cursor: pointer;
-      transition: background 0.1s ease;
+      transition: background 0.08s ease;
     }
-    tr.log-row:hover { background: #172033; }
+    tr.log-row:hover { background: #131b2e; }
     tr.log-row.selected {
-      background: #1c273e !important;
-      outline: 1px solid #3b82f6;
+      background: #17223b !important;
+      outline: 1px solid var(--accent);
     }
-    tr.log-row.expanded { background: #131b2e; }
+    tr.log-row.expanded { background: #111726; }
 
-    .density-compact td { padding: 0.25rem 0.65rem; font-size: 0.74rem; }
-    .wrap-text .cell-msg { white-space: normal; }
-    .clip-text .cell-msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 600px; }
-
-    .cell-time { width: 175px; color: #94a3b8; white-space: nowrap; }
-    .cell-level { width: 95px; white-space: nowrap; }
-    .cell-service { width: 160px; white-space: nowrap; }
+    .cell-time { width: 170px; color: var(--text-muted); white-space: nowrap; }
+    .cell-lvl { width: 85px; white-space: nowrap; }
+    .cell-svc { width: 155px; white-space: nowrap; }
     .cell-msg {
       word-break: break-word;
-      color: #e2e8f0;
-      line-height: 1.45;
+      color: #cbd5e1;
+      line-height: 1.4;
     }
 
-    /* Badges & Pills */
+    .clip-text .cell-msg {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 650px;
+    }
+
+    /* Structured Badges */
     .badge {
       display: inline-block;
-      padding: 0.08rem 0.35rem;
-      border-radius: 3px;
-      font-size: 0.66rem;
-      font-weight: 700;
+      padding: 0.05rem 0.3rem;
+      border-radius: 2px;
+      font-size: 0.64rem;
+      font-weight: 600;
+      font-family: var(--mono);
       text-align: center;
     }
-    .badge-INFO { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); }
-    .badge-WARN { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); }
-    .badge-ERROR, .badge-FATAL { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
-    .badge-DEBUG { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); }
+    .badge-INFO { color: var(--color-info); border: 1px solid rgba(56, 189, 248, 0.3); }
+    .badge-WARN { color: var(--color-warn); border: 1px solid rgba(234, 179, 8, 0.3); }
+    .badge-ERROR, .badge-FATAL { color: var(--color-error); border: 1px solid rgba(239, 68, 68, 0.35); }
+    .badge-DEBUG { color: var(--color-debug); border: 1px solid rgba(168, 85, 247, 0.3); }
 
-    .service-pill {
-      background: #1e293b;
-      color: #cbd5e1;
-      padding: 0.08rem 0.35rem;
-      border-radius: 3px;
-      border: 1px solid #334155;
-    }
-
-    .trace-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.2rem;
-      background: rgba(99, 102, 241, 0.15);
-      border: 1px solid rgba(99, 102, 241, 0.4);
-      color: #818cf8;
-      padding: 0.08rem 0.4rem;
-      border-radius: 4px;
+    .tag-trace {
+      display: inline-block;
+      color: #a5b4fc;
+      border: 1px solid rgba(165, 180, 252, 0.3);
+      padding: 0.05rem 0.35rem;
+      border-radius: 2px;
       font-family: var(--mono);
-      font-size: 0.68rem;
-      cursor: pointer;
-      transition: all 0.15s ease;
+      font-size: 0.65rem;
       margin-left: 0.35rem;
+      cursor: pointer;
     }
-    .trace-pill:hover {
-      background: rgba(99, 102, 241, 0.35);
-      color: #c7d2fe;
+    .tag-trace:hover {
+      background: rgba(165, 180, 252, 0.12);
     }
 
-    .dedup-pill {
-      display: inline-flex;
-      align-items: center;
-      background: rgba(16, 185, 129, 0.15);
-      border: 1px solid rgba(16, 185, 129, 0.4);
-      color: #34d399;
-      padding: 0.08rem 0.35rem;
-      border-radius: 4px;
+    .tag-repeat {
+      display: inline-block;
+      color: var(--color-success);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      padding: 0.05rem 0.3rem;
+      border-radius: 2px;
       font-family: var(--mono);
-      font-size: 0.66rem;
-      font-weight: 700;
+      font-size: 0.64rem;
       margin-left: 0.3rem;
     }
 
     .details-row td {
-      background: #090e17;
-      padding: 0.75rem 1rem;
-      border-bottom: 2px solid #1e293b;
+      background: #0b0f19;
+      padding: 0.65rem 0.85rem;
+      border-bottom: 2px solid var(--border);
     }
     .details-box {
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
+      gap: 0.45rem;
     }
     .details-actions {
       display: flex;
       justify-content: flex-end;
-      gap: 0.5rem;
+      gap: 0.4rem;
     }
     pre {
-      background: #05080e;
-      border: 1px solid #1e293b;
-      border-radius: 5px;
-      padding: 0.75rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0.65rem;
       overflow-x: auto;
       font-family: var(--mono);
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       color: #93c5fd;
     }
 
-    /* Modals & Overlays */
+    /* Modal Windows */
     .modal-overlay {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.8);
-      backdrop-filter: blur(4px);
+      background: rgba(0, 0, 0, 0.75);
       z-index: 200;
       align-items: center;
       justify-content: center;
       padding: 1rem;
     }
     .modal-overlay.active { display: flex; }
-    .modal-card {
-      background: #0f172a;
-      border: 1px solid #334155;
-      border-radius: 10px;
+    .modal-frame {
+      background: var(--surface);
+      border: 1px solid var(--border-accent);
+      border-radius: 6px;
       width: 100%;
-      max-width: 860px;
+      max-width: 840px;
       max-height: 85vh;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 16px 36px rgba(0,0,0,0.6);
+      box-shadow: 0 12px 32px rgba(0,0,0,0.7);
     }
-    .modal-header {
-      padding: 0.85rem 1.25rem;
-      border-bottom: 1px solid #1e293b;
+    .modal-top {
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
       align-items: center;
+      font-family: var(--mono);
     }
-    .modal-body {
-      padding: 1.25rem;
+    .modal-top h3 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #fff;
+    }
+    .modal-content {
+      padding: 1rem;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 1rem;
+      gap: 0.85rem;
     }
-    .modal-close {
+    .modal-close-btn {
       background: transparent;
       border: none;
       color: var(--text-muted);
       cursor: pointer;
-      font-size: 1.3rem;
-      padding: 0.2rem;
+      font-family: var(--mono);
+      font-size: 1rem;
+      padding: 0.2rem 0.4rem;
     }
-    .modal-close:hover { color: #fff; }
+    .modal-close-btn:hover { color: #fff; }
 
-    /* Waterfall Gantt Visualizer Styles */
-    .waterfall-meta {
+    /* Waterfall Gantt Layout */
+    .waterfall-summary {
       display: flex;
       justify-content: space-between;
-      align-items: center;
       font-family: var(--mono);
-      font-size: 0.8rem;
+      font-size: 0.72rem;
+      background: var(--surface-elevated);
+      padding: 0.5rem 0.75rem;
+      border-radius: 3px;
+      border: 1px solid var(--border);
       color: var(--text-muted);
-      background: #090e17;
-      padding: 0.65rem 0.85rem;
-      border-radius: 6px;
-      border: 1px solid #1e293b;
     }
-    .waterfall-gantt {
+    .waterfall-summary strong { color: var(--text); }
+
+    .waterfall-timeline {
       display: flex;
       flex-direction: column;
-      gap: 0.45rem;
-      max-height: 52vh;
+      gap: 0.35rem;
+      max-height: 50vh;
       overflow-y: auto;
-      padding-right: 0.35rem;
     }
-    .gantt-row {
+    .waterfall-row {
       display: grid;
-      grid-template-columns: 170px 1fr;
+      grid-template-columns: 160px 1fr;
       align-items: center;
-      gap: 0.85rem;
-      background: #111a2e;
-      padding: 0.45rem 0.65rem;
-      border-radius: 6px;
-      border: 1px solid #1e293b;
+      gap: 0.75rem;
+      background: var(--surface-elevated);
+      padding: 0.35rem 0.55rem;
+      border-radius: 3px;
+      border: 1px solid var(--border);
       cursor: pointer;
-      transition: border-color 0.15s ease;
     }
-    .gantt-row:hover { border-color: #3b82f6; }
-    .gantt-service-col {
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-    .gantt-service-name {
-      font-weight: 700;
-      font-size: 0.78rem;
-      color: #93c5fd;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      overflow: hidden;
-    }
-    .gantt-service-meta {
-      font-size: 0.68rem;
-      color: var(--text-muted);
+    .waterfall-row:hover { border-color: var(--border-accent); }
+    .waterfall-svc {
       font-family: var(--mono);
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--color-info);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
-    .gantt-bar-container {
+    .waterfall-track {
       position: relative;
-      height: 24px;
-      background: #070a12;
-      border-radius: 4px;
+      height: 20px;
+      background: var(--bg);
+      border-radius: 2px;
       overflow: hidden;
     }
-    .gantt-bar {
+    .waterfall-bar {
       position: absolute;
       height: 100%;
-      border-radius: 3px;
+      border-radius: 2px;
       display: flex;
       align-items: center;
-      padding: 0 0.45rem;
-      font-size: 0.68rem;
+      padding: 0 0.35rem;
+      font-size: 0.65rem;
       font-family: var(--mono);
-      font-weight: 700;
+      font-weight: 600;
       color: #fff;
       white-space: nowrap;
       overflow: hidden;
-      cursor: pointer;
-      transition: transform 0.1s ease;
     }
-    .gantt-bar:hover { filter: brightness(1.15); }
-    .gantt-bar.INFO { background: #2563eb; }
-    .gantt-bar.WARN { background: #d97706; }
-    .gantt-bar.ERROR, .gantt-bar.FATAL { background: #dc2626; }
-    .gantt-bar.DEBUG { background: #7c3aed; }
-    .gantt-bar.bottleneck {
-      border: 1px solid #facc15;
-      box-shadow: 0 0 8px rgba(250, 204, 21, 0.4);
+    .waterfall-bar.INFO { background: #1d4ed8; }
+    .waterfall-bar.WARN { background: #b45309; }
+    .waterfall-bar.ERROR, .waterfall-bar.FATAL { background: #b91c1c; }
+    .waterfall-bar.DEBUG { background: #6d28d9; }
+    .waterfall-bar.bottleneck {
+      border: 1px solid #eab308;
     }
-    .gantt-timeline-axis {
+
+    .waterfall-axis {
       display: flex;
       justify-content: space-between;
-      color: var(--text-muted);
-      font-size: 0.68rem;
+      color: var(--text-dim);
+      font-size: 0.65rem;
       font-family: var(--mono);
       padding-top: 0.35rem;
-      border-top: 1px dashed #334155;
+      border-top: 1px dashed var(--border);
     }
-    .gantt-detail-box {
-      background: #090e17;
-      border: 1px solid #1e293b;
-      border-radius: 6px;
-      padding: 0.65rem 0.85rem;
+    .waterfall-selected-span {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0.5rem 0.65rem;
       font-family: var(--mono);
-      font-size: 0.74rem;
-      color: #cbd5e1;
+      font-size: 0.72rem;
+      color: var(--text);
       display: none;
     }
 
-    /* Hotkey Table */
-    .hotkey-grid {
+    /* Shortcuts Grid */
+    .shortcuts-table {
       display: grid;
-      grid-template-columns: 120px 1fr;
-      gap: 0.6rem 1rem;
+      grid-template-columns: 100px 1fr;
+      gap: 0.45rem 0.85rem;
+      font-size: 0.75rem;
       align-items: center;
-      font-size: 0.82rem;
     }
     .kbd {
-      background: #1e293b;
-      border: 1px solid #475569;
-      color: #f1f5f9;
-      padding: 0.15rem 0.45rem;
-      border-radius: 4px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-accent);
+      color: var(--text);
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
       font-family: var(--mono);
-      font-size: 0.75rem;
-      font-weight: 700;
+      font-size: 0.7rem;
+      font-weight: 600;
       text-align: center;
       display: inline-block;
     }
@@ -846,165 +804,145 @@
 </head>
 <body>
 
-  <!-- Top Navigation Header -->
+  <!-- Top Header -->
   <header>
-    <div class="brand-section">
-      <button class="btn btn-ghost" style="padding:0.25rem 0.45rem;" onclick="toggleSidebar()" title="Toggle Facets Sidebar (Hotkey: b)">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    <div class="header-left">
+      <button class="btn btn-ghost" style="padding:0.2rem 0.4rem;" onclick="toggleSidebar()" title="Toggle sidebar (b)">
+        <span style="font-family:var(--mono); font-size:0.8rem;">[||]</span>
       </button>
-      <div class="brand-logo">
-        <svg viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-        <span>SiftLog</span>
-      </div>
-      <span class="badge-tag badge-enterprise">Enterprise 0.4.0</span>
-      <span class="badge-tag badge-finops">FinOps Dropper</span>
+      <span class="brand">SIFTLOG</span>
+      <span class="tag">v0.4.0</span>
+      <span class="tag tag-accent">FinOps Engine</span>
     </div>
 
-    <!-- Live Metrics -->
-    <div class="metrics-bar">
-      <div class="metric-item">
-        <span class="metric-label">Ingested</span>
-        <span class="metric-value" id="stat-total-logs">0</span>
+    <!-- Live Telemetry Metrics -->
+    <div class="metrics-strip">
+      <div class="metric">
+        <span class="metric-name">Ingested</span>
+        <span class="metric-val" id="stat-total-logs">0</span>
       </div>
-      <div class="metric-item">
-        <span class="metric-label">Rate</span>
-        <span class="metric-value metric-rate" id="stat-rate">0 /s</span>
+      <div class="metric">
+        <span class="metric-name">Rate</span>
+        <span class="metric-val" id="stat-rate" style="color:var(--color-info);">0/s</span>
       </div>
-      <div class="metric-item">
-        <span class="metric-label">Disk (Zstd)</span>
-        <span class="metric-value" id="stat-disk-size">0 KB</span>
+      <div class="metric">
+        <span class="metric-name">Storage</span>
+        <span class="metric-val" id="stat-disk-size">0 KB</span>
       </div>
-      <div class="metric-item">
-        <span class="metric-label">Ratio</span>
-        <span class="metric-value" id="stat-ratio" style="color:#34d399;">1.0x</span>
+      <div class="metric">
+        <span class="metric-name">Ratio</span>
+        <span class="metric-val" id="stat-ratio" style="color:var(--color-success);">1.0x</span>
       </div>
-      <div class="metric-item">
-        <span class="metric-label">Segments</span>
-        <span class="metric-value" id="stat-chunks">0</span>
+      <div class="metric">
+        <span class="metric-name">Segments</span>
+        <span class="metric-val" id="stat-chunks">0</span>
       </div>
     </div>
 
-    <!-- Header Controls -->
-    <div class="header-controls">
-      <div class="live-toggle" id="live-toggle" onclick="toggleLiveTail()" title="Toggle Real-Time Stream (Hotkey: s)">
-        <span class="pulse-dot"></span>
-        <span id="live-text">Live: OFF</span>
-      </div>
-      <button class="btn btn-secondary" onclick="exportResults('json')" title="Export filtered logs as JSON">Export</button>
-      <button class="btn btn-secondary" onclick="openShortcutsModal()" title="Keyboard Shortcuts (?)">?</button>
-      <button class="btn btn-secondary" onclick="openIngestModal()">Ingest API</button>
+    <!-- Header Actions -->
+    <div class="header-right">
+      <button class="btn-live" id="live-btn" onclick="toggleLiveTail()" title="Toggle real-time stream (s)">Live: OFF</button>
+      <button class="btn btn-secondary" onclick="exportData('json')" title="Export matching logs as JSON">JSON</button>
+      <button class="btn btn-secondary" onclick="exportData('csv')" title="Export matching logs as CSV">CSV</button>
+      <button class="btn btn-secondary" onclick="openShortcutsModal()" title="Keyboard shortcuts (?)">?</button>
+      <button class="btn btn-secondary" onclick="openIngestModal()">API</button>
     </div>
   </header>
 
-  <!-- App Workspace -->
-  <div class="app-layout">
+  <!-- Workspace Container -->
+  <div class="workspace">
 
-    <!-- Left Collapsible Sidebar (Facets & Quick Filters) -->
+    <!-- Left Sidebar: Filters & Facets -->
     <aside class="sidebar" id="sidebar">
-      <div class="sidebar-section">
-        <div class="sidebar-title">
-          <span>Quick Views</span>
-          <span style="font-size:0.6rem; color:var(--text-muted);">Presets</span>
+      <div class="sidebar-block">
+        <div class="sidebar-heading">
+          <span>Views</span>
+          <span>Filter</span>
         </div>
-        <div class="preset-list">
-          <button class="preset-btn active" id="preset-all" onclick="applyPreset('all')">
-            <span>⚡ All Logs</span>
+        <div class="nav-list">
+          <button class="nav-item active" id="view-all" onclick="applyPreset('all')">
+            <span>All logs</span>
           </button>
-          <button class="preset-btn" id="preset-errors" onclick="applyPreset('errors')">
-            <span>🚨 Errors & Fatals</span>
+          <button class="nav-item" id="view-errors" onclick="applyPreset('errors')">
+            <span>Errors only</span>
           </button>
-          <button class="preset-btn" id="preset-traces" onclick="applyPreset('traces')">
-            <span>🔗 Distributed Traces</span>
+          <button class="nav-item" id="view-traces" onclick="applyPreset('traces')">
+            <span>Traced requests</span>
           </button>
-          <button class="preset-btn" id="preset-clean" onclick="applyPreset('clean')">
-            <span>🛡️ Exclude Noise (health)</span>
+          <button class="nav-item" id="view-clean" onclick="applyPreset('clean')">
+            <span>Exclude noise</span>
           </button>
         </div>
       </div>
 
-      <div class="sidebar-section">
-        <div class="sidebar-title">
+      <div class="sidebar-block">
+        <div class="sidebar-heading">
           <span>Services</span>
-          <span id="services-count" style="font-size:0.68rem; color:var(--text-muted);">0</span>
+          <span id="services-count" class="counter">0</span>
         </div>
-        <div class="facet-list" id="services-facet-list">
-          <!-- Dynamic service facets -->
+        <div class="nav-list" id="services-list">
+          <!-- Populated dynamically -->
         </div>
       </div>
 
-      <div class="sidebar-section">
-        <div class="sidebar-title">
-          <span>Severity Levels</span>
+      <div class="sidebar-block">
+        <div class="sidebar-heading">
+          <span>Severity</span>
         </div>
-        <div class="facet-list">
-          <button class="facet-btn" onclick="setLevelFilter('ERROR', null)">
-            <span style="color:#f87171;">● ERROR / FATAL</span>
-            <span class="facet-count" id="count-lvl-error">0</span>
+        <div class="nav-list">
+          <button class="nav-item" onclick="setLevelFilter('ERROR', null)">
+            <span style="color:var(--color-error);">ERROR / FATAL</span>
+            <span class="counter" id="cnt-error">0</span>
           </button>
-          <button class="facet-btn" onclick="setLevelFilter('WARN', null)">
-            <span style="color:#fbbf24;">● WARN</span>
-            <span class="facet-count" id="count-lvl-warn">0</span>
+          <button class="nav-item" onclick="setLevelFilter('WARN', null)">
+            <span style="color:var(--color-warn);">WARN</span>
+            <span class="counter" id="cnt-warn">0</span>
           </button>
-          <button class="facet-btn" onclick="setLevelFilter('INFO', null)">
-            <span style="color:#38bdf8;">● INFO</span>
-            <span class="facet-count" id="count-lvl-info">0</span>
+          <button class="nav-item" onclick="setLevelFilter('INFO', null)">
+            <span style="color:var(--color-info);">INFO</span>
+            <span class="counter" id="cnt-info">0</span>
           </button>
-          <button class="facet-btn" onclick="setLevelFilter('DEBUG', null)">
-            <span style="color:#c084fc;">● DEBUG</span>
-            <span class="facet-count" id="count-lvl-debug">0</span>
+          <button class="nav-item" onclick="setLevelFilter('DEBUG', null)">
+            <span style="color:var(--color-debug);">DEBUG</span>
+            <span class="counter" id="cnt-debug">0</span>
           </button>
         </div>
       </div>
     </aside>
 
-    <!-- Main Workspace -->
-    <main class="main-content">
+    <!-- Main Viewport -->
+    <main class="viewport">
 
-      <!-- RCA Active Incident Banner -->
-      <div class="rca-banner" id="rca-banner">
-        <div class="rca-info">
-          <div class="rca-topline">
-            <span class="rca-badge">ROOT CAUSE DETECTED</span>
-            <span class="rca-title" id="rca-title">First fault in service</span>
-          </div>
-          <div class="rca-details" id="rca-details">Service: ... | Error: ...</div>
-          <div class="rca-cascade" id="rca-cascade">Cascade: 0 affected services</div>
+      <!-- RCA Incident Notification -->
+      <div class="incident-strip" id="incident-strip">
+        <div class="incident-body">
+          <div class="incident-title" id="incident-title">Root Cause Detected</div>
+          <div class="incident-desc" id="incident-desc">Service: ... | Error: ...</div>
+          <div class="incident-cascade" id="incident-cascade">Cascade: 0 downstream services affected</div>
         </div>
-        <div class="rca-actions">
-          <button class="btn" style="background:#dc2626;" id="rca-filter-btn" onclick="filterByRcaRoot()">Filter Root Service</button>
+        <div style="display:flex; gap:0.4rem;">
+          <button class="btn" style="background:var(--color-error);" id="btn-rca-filter" onclick="filterRcaRoot()">Filter Service</button>
           <button class="btn btn-secondary" onclick="dismissRca()">Dismiss</button>
         </div>
       </div>
 
-      <!-- Search & Filters Toolbar -->
-      <div class="search-card">
-        <div class="search-row">
-          <div class="search-input-wrapper">
-            <span class="search-icon">🔍</span>
-            <input type="text" id="query-input" placeholder='LogSQL: "exact phrase" AND service:auth level:ERROR NOT health (Press / to focus)' onkeydown="if(event.key==='Enter') executeSearch()">
-            <button class="clear-search-btn" onclick="clearSearch()" title="Clear search">&times;</button>
-          </div>
+      <!-- Query & Filter Toolbar -->
+      <div class="query-panel">
+        <div class="search-input-row">
+          <input type="text" id="query-input" class="search-input" placeholder='LogSQL: "exact phrase" AND service:auth level:ERROR NOT health (Press / to focus)' onkeydown="if(event.key==='Enter') executeSearch()">
           <button class="btn" onclick="executeSearch()">Search</button>
-          <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
+          <button class="search-btn-clear" onclick="resetFilters()">Reset</button>
         </div>
 
-        <div class="quick-chips">
-          <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">LogSQL Shortcuts:</span>
-          <span class="quick-chip" onclick="appendQuery('level:ERROR')">level:ERROR</span>
-          <span class="quick-chip" onclick="appendQuery('NOT healthz')">NOT healthz</span>
-          <span class="quick-chip" onclick="appendQuery('\"timeout\"')">"timeout"</span>
-          <span class="quick-chip" onclick="appendQuery('service:api-gateway')">service:api-gateway</span>
-        </div>
-
-        <div class="filter-secondary-row">
-          <div class="filter-item">
+        <div class="query-controls">
+          <div class="filter-group">
             <span class="filter-label">Service</span>
             <select id="service-select" onchange="executeSearch()">
               <option value="">All Services</option>
             </select>
           </div>
 
-          <div class="filter-item">
+          <div class="filter-group">
             <span class="filter-label">Level</span>
             <div class="level-pills">
               <span class="level-pill active" data-lvl="" onclick="setLevelFilter('', this)">ALL</span>
@@ -1015,7 +953,7 @@
             </div>
           </div>
 
-          <div class="filter-item">
+          <div class="filter-group">
             <span class="filter-label">Time</span>
             <select id="time-select" onchange="executeSearch()">
               <option value="all">All time</option>
@@ -1026,7 +964,7 @@
             </select>
           </div>
 
-          <div class="filter-item">
+          <div class="filter-group">
             <span class="filter-label">Limit</span>
             <select id="limit-select" onchange="executeSearch()">
               <option value="50">50</option>
@@ -1038,40 +976,46 @@
         </div>
       </div>
 
-      <!-- Timeline Activity Histogram Card -->
-      <div class="hist-card" id="hist-card">
-        <div class="hist-header">
-          <span class="hist-title">
-            <span>Activity Timeline</span>
-            <span id="hist-meta" style="font-family:var(--mono); color:#38bdf8; font-weight:normal;"></span>
-          </span>
-          <div class="hist-legend">
-            <span class="legend-item"><span class="legend-dot" style="background:#10b981;"></span> Normal</span>
-            <span class="legend-item"><span class="legend-dot" style="background:#f59e0b;"></span> WARN</span>
-            <span class="legend-item"><span class="legend-dot" style="background:#ef4444;"></span> ERROR</span>
-            <button class="btn btn-ghost" id="zoom-reset-btn" style="display:none; padding:0.1rem 0.4rem; font-size:0.68rem;" onclick="resetZoom()">Reset Zoom</button>
+      <!-- Advanced Time-Series Chart Card -->
+      <div class="chart-panel" id="chart-panel">
+        <div class="chart-header">
+          <div class="chart-title">
+            <span>Log Activity Over Time</span>
+            <span id="chart-meta" style="color:var(--text-dim); font-size:0.62rem;"></span>
+          </div>
+
+          <div class="chart-controls">
+            <div class="chart-legend">
+              <span class="legend-item"><span class="legend-box" style="background:#38bdf8;"></span> Normal</span>
+              <span class="legend-item"><span class="legend-box" style="background:#ef4444;"></span> Error</span>
+            </div>
+            <div class="chart-type-toggle">
+              <button class="chart-type-btn active" id="btn-chart-bars" onclick="setChartType('bars')">Bars</button>
+              <button class="chart-type-btn" id="btn-chart-area" onclick="setChartType('area')">Area</button>
+            </div>
+            <button class="btn-ghost" id="zoom-reset-btn" style="display:none; font-family:var(--mono); font-size:0.65rem;" onclick="resetZoom()">Reset Zoom</button>
           </div>
         </div>
-        <canvas id="hist-canvas"></canvas>
-        <div class="hist-tooltip" id="hist-tooltip"></div>
+
+        <canvas id="chart-canvas"></canvas>
+        <div class="chart-tooltip" id="chart-tooltip"></div>
       </div>
 
-      <!-- Logs Table -->
-      <div class="table-card">
-        <div class="table-toolbar">
-          <div class="table-stats">
-            <span>Matched: <strong id="matched-count" style="color:var(--text);">0</strong></span>
-            <span>Query time: <strong id="duration-text" style="color:#38bdf8;">0.00 ms</strong></span>
-            <span>Segments scanned: <strong id="scanned-chunks" style="color:var(--text);">0</strong></span>
+      <!-- Logs Data Table -->
+      <div class="table-panel">
+        <div class="table-topbar">
+          <div class="table-meta">
+            <span>Matched: <strong id="matched-count">0</strong></span>
+            <span>Query time: <strong id="duration-text">0.00 ms</strong></span>
+            <span>Segments: <strong id="scanned-chunks">0</strong></span>
           </div>
           <div class="table-options">
-            <button class="btn btn-ghost" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="toggleDensity()" title="Toggle row height">Density</button>
-            <button class="btn btn-ghost" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="toggleWrap()" title="Toggle line wrap">Wrap</button>
-            <span style="font-size:0.75rem; color:var(--text-muted);" id="status-hint">Ready</span>
+            <button class="btn btn-ghost" style="padding:0.15rem 0.4rem; font-size:0.68rem;" onclick="toggleClip()" title="Toggle text clipping">Clip</button>
+            <span style="color:var(--text-dim);" id="status-hint">Ready</span>
           </div>
         </div>
 
-        <div class="table-container clip-text" id="table-container">
+        <div class="table-scroll clip-text" id="table-scroll">
           <table>
             <thead>
               <tr>
@@ -1082,7 +1026,7 @@
               </tr>
             </thead>
             <tbody id="logs-tbody">
-              <tr><td colspan="4" class="empty-state" style="text-align:center; padding: 3rem; color: var(--text-muted);">No logs ingested yet or no matches found.</td></tr>
+              <tr><td colspan="4" style="text-align:center; padding: 3rem; color: var(--text-dim);">No logs ingested yet or no matches found.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1091,50 +1035,43 @@
     </main>
   </div>
 
-  <!-- Trace Waterfall Visualizer 2.0 Modal -->
+  <!-- Trace Waterfall Modal -->
   <div class="modal-overlay" id="trace-modal">
-    <div class="modal-card">
-      <div class="modal-header">
-        <div style="display:flex; align-items:center; gap:0.6rem;">
-          <h3 style="font-size:1rem; font-weight:700;">Distributed Trace Waterfall</h3>
-          <span class="badge-tag" id="wf-trace-badge" style="background:#1e1b4b; color:#a5b4fc; border-color:#4338ca;">trc</span>
-        </div>
-        <button class="modal-close" onclick="closeTraceModal()">&times;</button>
+    <div class="modal-frame">
+      <div class="modal-top">
+        <h3>Distributed Trace Waterfall</h3>
+        <button class="modal-close-btn" onclick="closeTraceModal()">&times;</button>
       </div>
-      <div class="modal-body">
-        <div class="waterfall-meta">
-          <div>Trace ID: <strong id="wf-trace-id" style="color:#818cf8;">-</strong></div>
-          <div>Total Latency: <strong id="wf-duration" style="color:#34d399;">0 ms</strong></div>
-          <div>Spans: <strong id="wf-spans" style="color:var(--text);">0</strong></div>
+      <div class="modal-content">
+        <div class="waterfall-summary">
+          <div>Trace ID: <strong id="wf-trace-id">-</strong></div>
+          <div>Duration: <strong id="wf-duration">0 ms</strong></div>
+          <div>Spans: <strong id="wf-spans">0</strong></div>
         </div>
 
-        <div class="waterfall-gantt" id="wf-gantt">
-          <!-- Populated dynamically -->
-        </div>
+        <div class="waterfall-timeline" id="wf-timeline"></div>
 
-        <div class="gantt-timeline-axis">
+        <div class="waterfall-axis">
           <span>0 ms</span>
           <span id="wf-axis-mid">50 ms</span>
           <span id="wf-axis-end">100 ms</span>
         </div>
 
-        <div class="gantt-detail-box" id="wf-detail-box">
-          <!-- Span details upon clicking row -->
-        </div>
+        <div class="waterfall-selected-span" id="wf-selected-span"></div>
       </div>
     </div>
   </div>
 
-  <!-- Context / Surrounding Logs Modal -->
+  <!-- Context Surrounding Logs Modal -->
   <div class="modal-overlay" id="context-modal">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3 style="font-size:1rem; font-weight:700;">Surrounding Logs (±10s Context)</h3>
-        <button class="modal-close" onclick="closeContextModal()">&times;</button>
+    <div class="modal-frame">
+      <div class="modal-top">
+        <h3>Surrounding Logs Context (±10s)</h3>
+        <button class="modal-close-btn" onclick="closeContextModal()">&times;</button>
       </div>
-      <div class="modal-body">
-        <div style="font-size:0.75rem; color:var(--text-muted);" id="context-meta">Showing logs around target timestamp</div>
-        <div class="table-container" style="max-height: 55vh;">
+      <div class="modal-content">
+        <div style="font-family:var(--mono); font-size:0.72rem; color:var(--text-muted);" id="context-meta"></div>
+        <div class="table-scroll" style="max-height: 52vh;">
           <table>
             <thead>
               <tr>
@@ -1151,55 +1088,49 @@
     </div>
   </div>
 
-  <!-- Keyboard Shortcuts Modal -->
+  <!-- Shortcuts Modal -->
   <div class="modal-overlay" id="shortcuts-modal">
-    <div class="modal-card" style="max-width: 500px;">
-      <div class="modal-header">
-        <h3 style="font-size:1rem; font-weight:700;">Keyboard Shortcuts</h3>
-        <button class="modal-close" onclick="closeShortcutsModal()">&times;</button>
+    <div class="modal-frame" style="max-width: 460px;">
+      <div class="modal-top">
+        <h3>Keyboard Shortcuts</h3>
+        <button class="modal-close-btn" onclick="closeShortcutsModal()">&times;</button>
       </div>
-      <div class="modal-body">
-        <div class="hotkey-grid">
-          <span class="kbd">/</span><span>Focus LogSQL search input</span>
-          <span class="kbd">j / ↓</span><span>Move selection to next log</span>
-          <span class="kbd">k / ↑</span><span>Move selection to previous log</span>
-          <span class="kbd">Enter</span><span>Toggle JSON details for selected log</span>
-          <span class="kbd">t</span><span>Open Waterfall Trace for selected log</span>
-          <span class="kbd">c</span><span>Copy raw JSON of selected log</span>
-          <span class="kbd">s</span><span>Toggle Real-Time Live Streaming</span>
-          <span class="kbd">b</span><span>Toggle Sidebar Facets</span>
-          <span class="kbd">Esc</span><span>Close any open modal or reset focus</span>
-          <span class="kbd">?</span><span>Show this shortcuts cheatsheet</span>
+      <div class="modal-content">
+        <div class="shortcuts-table">
+          <span class="kbd">/</span><span>Focus search input</span>
+          <span class="kbd">j / Down</span><span>Select next log</span>
+          <span class="kbd">k / Up</span><span>Select previous log</span>
+          <span class="kbd">Enter</span><span>Toggle JSON row details</span>
+          <span class="kbd">t</span><span>Open Waterfall for selected trace</span>
+          <span class="kbd">c</span><span>Copy raw JSON to clipboard</span>
+          <span class="kbd">s</span><span>Toggle live streaming</span>
+          <span class="kbd">b</span><span>Toggle left sidebar</span>
+          <span class="kbd">Esc</span><span>Close modal or reset selection</span>
+          <span class="kbd">?</span><span>Show keyboard shortcuts</span>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Ingest Modal -->
+  <!-- Ingestion API Reference Modal -->
   <div class="modal-overlay" id="ingest-modal">
-    <div class="modal-card" style="max-width: 620px;">
-      <div class="modal-header">
-        <h3 style="font-size:1rem; font-weight:700;">Log Ingestion & LogSQL Syntax</h3>
-        <button class="modal-close" onclick="closeIngestModal()">&times;</button>
+    <div class="modal-frame" style="max-width: 600px;">
+      <div class="modal-top">
+        <h3>Ingestion Endpoints</h3>
+        <button class="modal-close-btn" onclick="closeIngestModal()">&times;</button>
       </div>
-      <div class="modal-body">
+      <div class="modal-content">
         <div>
-          <span style="font-weight:700; color:#38bdf8;">Standard JSON Ingestion Endpoint:</span>
+          <span style="font-family:var(--mono); color:var(--color-info);">POST /api/v1/logs</span>
           <pre>curl -X POST http://localhost:8080/api/v1/logs \
   -H "Content-Type: application/json" \
-  -d '[{"service":"auth","level":"INFO","message":"User login ok","trace_id":"trc-99"}]'</pre>
+  -d '[{"service":"auth","level":"INFO","message":"User login","trace_id":"trc-99"}]'</pre>
         </div>
         <div>
-          <span style="font-weight:700; color:#34d399;">Grafana Loki / Vector / Fluent Bit Sink:</span>
+          <span style="font-family:var(--mono); color:var(--color-success);">POST /loki/api/v1/push (Vector / Fluent Bit)</span>
           <pre>curl -X POST http://localhost:8080/loki/api/v1/push \
   -H "Content-Type: application/json" \
-  -d '{"streams":[{"stream":{"app":"billing"},"values":[["1700000000000000000","Charged card $49"]]}]}'</pre>
-        </div>
-        <div>
-          <span style="font-weight:700; color:#fbbf24;">LogSQL Filter Examples:</span>
-          <pre>"connection timeout" AND service:payment
-level:ERROR OR level:FATAL
-NOT service:healthcheck</pre>
+  -d '{"streams":[{"stream":{"app":"api"},"values":[["1700000000000000000","200 OK"]]}]}'</pre>
         </div>
       </div>
     </div>
@@ -1208,41 +1139,35 @@ NOT service:healthcheck</pre>
   <script>
     let activeLevel = '';
     let currentLogs = [];
-    let selectedRowIdx = -1;
-    let liveTimer = null;
+    let selectedIdx = -1;
     let isLive = false;
-    let rcaRootService = '';
-    let isCompact = false;
-    let isWrapped = false;
-    let lastIngestedCount = 0;
-    let lastStatsTime = Date.now();
-    let zoomTimeRange = null;
+    let liveTimer = null;
+    let rcaRoot = '';
+    let isClipped = true;
+    let lastIngestCount = 0;
+    let lastRateTime = Date.now();
+    let zoomRange = null;
+    let chartType = 'bars'; // 'bars' or 'area'
+    let histBuckets = [];
 
-    function apiUrl(path) { return path; }
-
-    function setLevelFilter(lvl, el) {
-      activeLevel = lvl;
-      document.querySelectorAll('.level-pill').forEach(p => p.classList.remove('active'));
-      if (el) el.classList.add('active');
-      else {
-        const matching = document.querySelector(`.level-pill[data-lvl="${lvl}"]`);
-        if (matching) matching.classList.add('active');
-      }
-      executeSearch();
-    }
+    function apiUrl(p) { return p; }
 
     function toggleSidebar() {
       document.getElementById('sidebar').classList.toggle('collapsed');
-      setTimeout(renderHistogramCanvas, 220);
+      setTimeout(renderChart, 180);
+    }
+
+    function toggleClip() {
+      isClipped = !isClipped;
+      document.getElementById('table-scroll').classList.toggle('clip-text', isClipped);
     }
 
     function toggleLiveTail() {
       isLive = !isLive;
-      const btn = document.getElementById('live-toggle');
-      const text = document.getElementById('live-text');
+      const btn = document.getElementById('live-btn');
       if (isLive) {
-        btn.classList.add('live-active');
-        text.innerText = 'Live: ON';
+        btn.classList.add('active');
+        btn.innerText = 'Live: ON';
         executeSearch();
         liveTimer = setInterval(() => {
           executeSearch(true);
@@ -1250,54 +1175,48 @@ NOT service:healthcheck</pre>
           fetchRca();
         }, 2000);
       } else {
-        btn.classList.remove('live-active');
-        text.innerText = 'Live: OFF';
+        btn.classList.remove('active');
+        btn.innerText = 'Live: OFF';
         if (liveTimer) clearInterval(liveTimer);
       }
     }
 
-    function toggleDensity() {
-      isCompact = !isCompact;
-      document.getElementById('table-container').classList.toggle('density-compact', isCompact);
+    function setChartType(t) {
+      chartType = t;
+      document.getElementById('btn-chart-bars').classList.toggle('active', t === 'bars');
+      document.getElementById('btn-chart-area').classList.toggle('active', t === 'area');
+      renderChart();
     }
 
-    function toggleWrap() {
-      isWrapped = !isWrapped;
-      const tc = document.getElementById('table-container');
-      tc.classList.toggle('wrap-text', isWrapped);
-      tc.classList.toggle('clip-text', !isWrapped);
-    }
-
-    function clearSearch() {
-      document.getElementById('query-input').value = '';
+    function setLevelFilter(lvl, el) {
+      activeLevel = lvl;
+      document.querySelectorAll('.level-pill').forEach(p => p.classList.remove('active'));
+      if (el) el.classList.add('active');
+      else {
+        const found = document.querySelector(`.level-pill[data-lvl="${lvl}"]`);
+        if (found) found.classList.add('active');
+      }
       executeSearch();
     }
 
-    function appendQuery(str) {
-      const inp = document.getElementById('query-input');
-      inp.value = inp.value ? `${inp.value} ${str}` : str;
-      inp.focus();
-    }
-
-    function applyPreset(preset) {
-      document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
-      const btn = document.getElementById(`preset-${preset}`);
-      if (btn) btn.classList.add('active');
+    function applyPreset(p) {
+      document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+      const activeBtn = document.getElementById(`view-${p}`);
+      if (activeBtn) activeBtn.classList.add('active');
 
       const qInp = document.getElementById('query-input');
-      const sSelect = document.getElementById('service-select');
-      const tSelect = document.getElementById('time-select');
+      const sSel = document.getElementById('service-select');
 
-      if (preset === 'all') {
+      if (p === 'all') {
         qInp.value = '';
-        sSelect.value = '';
+        sSel.value = '';
         setLevelFilter('', null);
-      } else if (preset === 'errors') {
+      } else if (p === 'errors') {
         setLevelFilter('ERROR', null);
-      } else if (preset === 'traces') {
+      } else if (p === 'traces') {
         qInp.value = 'trace';
         setLevelFilter('', null);
-      } else if (preset === 'clean') {
+      } else if (p === 'clean') {
         qInp.value = 'NOT health';
       }
       executeSearch();
@@ -1308,14 +1227,14 @@ NOT service:healthcheck</pre>
       document.getElementById('service-select').value = '';
       document.getElementById('time-select').value = 'all';
       document.getElementById('limit-select').value = '100';
-      zoomTimeRange = null;
+      zoomRange = null;
       document.getElementById('zoom-reset-btn').style.display = 'none';
       setLevelFilter('', document.querySelector('.level-pill[data-lvl=""]'));
       applyPreset('all');
     }
 
-    function getTimeWindowMs(val) {
-      if (zoomTimeRange) return zoomTimeRange;
+    function getTimeBounds(val) {
+      if (zoomRange) return zoomRange;
       const now = Date.now();
       switch(val) {
         case '15m': return { from: now - 15 * 60 * 1000, to: now };
@@ -1327,7 +1246,7 @@ NOT service:healthcheck</pre>
     }
 
     function resetZoom() {
-      zoomTimeRange = null;
+      zoomRange = null;
       document.getElementById('zoom-reset-btn').style.display = 'none';
       executeSearch();
     }
@@ -1337,50 +1256,48 @@ NOT service:healthcheck</pre>
       const service = document.getElementById('service-select').value;
       const limit = document.getElementById('limit-select').value;
       const timeVal = document.getElementById('time-select').value;
-      const timeRange = getTimeWindowMs(timeVal);
+      const timeBounds = getTimeBounds(timeVal);
 
       const params = new URLSearchParams();
       if (q) params.set('q', q);
       if (service) params.set('service', service);
       if (activeLevel) params.set('level', activeLevel);
       if (limit) params.set('limit', limit);
-      if (timeRange.from > 0) params.set('from', timeRange.from);
-      if (timeRange.to > 0) params.set('to', timeRange.to);
+      if (timeBounds.from > 0) params.set('from', timeBounds.from);
+      if (timeBounds.to > 0) params.set('to', timeBounds.to);
 
       if (!silent) document.getElementById('status-hint').innerText = 'Querying...';
 
       try {
         const resp = await fetch(apiUrl('/api/v1/search') + '?' + params.toString());
-        if (!resp.ok) throw new Error('Query error: ' + resp.statusText);
+        if (!resp.ok) throw new Error('Search failed: ' + resp.statusText);
         const data = await resp.json();
         renderResults(data);
         fetchHistogram(params);
         if (!silent) document.getElementById('status-hint').innerText = 'Ready';
-      } catch (err) {
+      } catch (e) {
         if (!silent) document.getElementById('status-hint').innerText = 'Error';
       }
     }
 
-    let histBuckets = [];
     async function fetchHistogram(params) {
-      const canvas = document.getElementById('hist-canvas');
-      if (!canvas) return;
       try {
-        const histParams = new URLSearchParams(params);
-        histParams.delete('limit');
-        const resp = await fetch(apiUrl('/api/v1/histogram') + '?' + histParams.toString());
+        const p = new URLSearchParams(params);
+        p.delete('limit');
+        const resp = await fetch(apiUrl('/api/v1/histogram') + '?' + p.toString());
         if (!resp.ok) return;
         const data = await resp.json();
         histBuckets = data.buckets || [];
-        renderHistogramCanvas();
-        const meta = document.getElementById('hist-meta');
-        if (meta) meta.innerText = `(${histBuckets.length} buckets • ${data.step_seconds}s interval)`;
+        renderChart();
+        const meta = document.getElementById('chart-meta');
+        if (meta) meta.innerText = `[${histBuckets.length} buckets / ${data.step_seconds}s interval]`;
       } catch (e) {}
     }
 
-    function renderHistogramCanvas() {
-      const canvas = document.getElementById('hist-canvas');
-      if (!canvas || !histBuckets.length) return;
+    /* Pro-Grade Canvas Chart Renderer (Bars & Area with Crosshair and Axes) */
+    function renderChart() {
+      const canvas = document.getElementById('chart-canvas');
+      if (!canvas) return;
       const ctx = canvas.getContext('2d');
       const rect = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
@@ -1392,131 +1309,220 @@ NOT service:healthcheck</pre>
       const h = rect.height;
       ctx.clearRect(0, 0, w, h);
 
-      let maxTotal = 1;
-      for (const b of histBuckets) {
-        if (b.total > maxTotal) maxTotal = b.total;
+      if (!histBuckets.length) {
+        ctx.fillStyle = '#4b586e';
+        ctx.font = '10px ui-monospace, monospace';
+        ctx.fillText('No activity data in selected time window', 10, h / 2);
+        return;
       }
 
-      const barWidth = Math.max(3, (w / histBuckets.length) - 2);
-      const stepX = w / histBuckets.length;
-
-      histBuckets.forEach((b, idx) => {
-        if (b.total === 0) return;
-        const x = idx * stepX;
-        const barHeight = Math.max(3, (b.total / maxTotal) * (h - 6));
-        const y = h - barHeight;
-
-        if (b.error > 0) {
-          ctx.fillStyle = '#ef4444';
-        } else if (b.warn > 0) {
-          ctx.fillStyle = '#f59e0b';
-        } else {
-          ctx.fillStyle = '#10b981';
-        }
-
-        ctx.fillRect(x, y, barWidth, barHeight);
+      let maxTotal = 1;
+      histBuckets.forEach(b => {
+        if (b.total > maxTotal) maxTotal = b.total;
       });
+
+      // Draw Grid Lines (Y-Axis)
+      const gridLevels = [0.25, 0.5, 0.75, 1.0];
+      ctx.strokeStyle = '#151d2f';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 2]);
+      ctx.fillStyle = '#4b586e';
+      ctx.font = '9px ui-monospace, monospace';
+
+      gridLevels.forEach(pct => {
+        const y = Math.round(h - (pct * (h - 12)));
+        ctx.beginPath();
+        ctx.moveTo(35, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+
+        const labelVal = Math.round(pct * maxTotal);
+        ctx.fillText(labelVal.toString(), 2, y + 3);
+      });
+      ctx.setLineDash([]);
+
+      const plotLeft = 35;
+      const plotWidth = w - plotLeft;
+      const n = histBuckets.length;
+      const stepX = plotWidth / n;
+
+      if (chartType === 'bars') {
+        // Bar Chart Mode
+        const barWidth = Math.max(2, stepX - 1.5);
+        histBuckets.forEach((b, i) => {
+          if (b.total === 0) return;
+          const x = plotLeft + (i * stepX);
+          const totalHeight = Math.max(2, (b.total / maxTotal) * (h - 14));
+          const y = h - totalHeight;
+
+          // Normal base bar
+          ctx.fillStyle = '#2563eb';
+          ctx.fillRect(x, y, barWidth, totalHeight);
+
+          // Error stack bar
+          if (b.error > 0) {
+            const errHeight = Math.max(2, (b.error / maxTotal) * (h - 14));
+            ctx.fillStyle = '#ef4444';
+            ctx.fillRect(x, y, barWidth, errHeight);
+          }
+        });
+      } else {
+        // Area / Line Chart Mode
+        // Total Volume Area
+        ctx.beginPath();
+        ctx.moveTo(plotLeft, h);
+        histBuckets.forEach((b, i) => {
+          const x = plotLeft + (i * stepX) + (stepX / 2);
+          const y = h - ((b.total / maxTotal) * (h - 14));
+          ctx.lineTo(x, y);
+        });
+        ctx.lineTo(plotLeft + plotWidth, h);
+        ctx.closePath();
+
+        const grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, 'rgba(56, 189, 248, 0.25)');
+        grad.addColorStop(1, 'rgba(56, 189, 248, 0.0)');
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // Total Stroke Line
+        ctx.beginPath();
+        histBuckets.forEach((b, i) => {
+          const x = plotLeft + (i * stepX) + (stepX / 2);
+          const y = h - ((b.total / maxTotal) * (h - 14));
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Error Line Overlay
+        let hasErrors = histBuckets.some(b => b.error > 0);
+        if (hasErrors) {
+          ctx.beginPath();
+          histBuckets.forEach((b, i) => {
+            const x = plotLeft + (i * stepX) + (stepX / 2);
+            const y = h - ((b.error / maxTotal) * (h - 14));
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          });
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+      }
     }
 
-    // Interactive Histogram Tooltip & Click-to-Zoom
-    const histCanvas = document.getElementById('hist-canvas');
-    const histTooltip = document.getElementById('hist-tooltip');
+    // Chart Mousemove / Crosshair & Tooltip
+    const chartCanvas = document.getElementById('chart-canvas');
+    const chartTooltip = document.getElementById('chart-tooltip');
 
-    histCanvas.addEventListener('mousemove', (e) => {
+    chartCanvas.addEventListener('mousemove', (e) => {
       if (!histBuckets.length) return;
-      const rect = histCanvas.getBoundingClientRect();
+      const rect = chartCanvas.getBoundingClientRect();
+      const plotLeft = 35;
       const mouseX = e.clientX - rect.left;
-      const bucketIdx = Math.floor((mouseX / rect.width) * histBuckets.length);
+      if (mouseX < plotLeft) {
+        chartTooltip.style.display = 'none';
+        return;
+      }
+
+      const plotWidth = rect.width - plotLeft;
+      const bucketIdx = Math.floor(((mouseX - plotLeft) / plotWidth) * histBuckets.length);
       const b = histBuckets[bucketIdx];
       if (b) {
-        const timeStr = new Date(b.timestamp).toLocaleTimeString();
-        histTooltip.style.display = 'block';
-        histTooltip.style.left = `${Math.min(rect.width - 150, Math.max(10, mouseX))}px`;
-        histTooltip.style.top = `${e.clientY - rect.top - 40}px`;
-        histTooltip.innerHTML = `<strong>${timeStr}</strong>: ${b.total} logs (${b.error} err, ${b.warn} warn)`;
+        const timeStr = new Date(b.timestamp).toISOString().replace('T', ' ').substring(11, 19);
+        chartTooltip.style.display = 'block';
+        chartTooltip.style.left = `${Math.min(rect.width - 160, Math.max(10, mouseX + 10))}px`;
+        chartTooltip.style.top = `${Math.max(5, e.clientY - rect.top - 35)}px`;
+        chartTooltip.innerHTML = `<div><strong>${timeStr}</strong>: ${b.total} total</div><div style="color:#ef4444;">${b.error} errors, ${b.warn} warn</div>`;
       }
     });
 
-    histCanvas.addEventListener('mouseleave', () => {
-      histTooltip.style.display = 'none';
+    chartCanvas.addEventListener('mouseleave', () => {
+      chartTooltip.style.display = 'none';
     });
 
-    histCanvas.addEventListener('click', (e) => {
+    chartCanvas.addEventListener('click', (e) => {
       if (!histBuckets.length) return;
-      const rect = histCanvas.getBoundingClientRect();
+      const rect = chartCanvas.getBoundingClientRect();
+      const plotLeft = 35;
       const mouseX = e.clientX - rect.left;
-      const bucketIdx = Math.floor((mouseX / rect.width) * histBuckets.length);
+      if (mouseX < plotLeft) return;
+
+      const plotWidth = rect.width - plotLeft;
+      const bucketIdx = Math.floor(((mouseX - plotLeft) / plotWidth) * histBuckets.length);
       const b = histBuckets[bucketIdx];
       if (b) {
         const stepMs = (histBuckets.length > 1) ? (histBuckets[1].timestamp - histBuckets[0].timestamp) : 60000;
-        zoomTimeRange = { from: b.timestamp, to: b.timestamp + stepMs };
+        zoomRange = { from: b.timestamp, to: b.timestamp + stepMs };
         document.getElementById('zoom-reset-btn').style.display = 'inline-block';
         executeSearch();
       }
     });
 
-    window.addEventListener('resize', renderHistogramCanvas);
+    window.addEventListener('resize', renderChart);
 
-    function formatTimestamp(ts) {
+    function formatTime(ts) {
       if (!ts) return '';
-      const d = new Date(ts);
-      return d.toISOString().replace('T', ' ').replace('Z', '');
+      return new Date(ts).toISOString().replace('T', ' ').replace('Z', '');
     }
 
     function renderResults(data) {
       currentLogs = data.logs || [];
-      selectedRowIdx = -1;
+      selectedIdx = -1;
       document.getElementById('matched-count').innerText = (data.total_matched || currentLogs.length).toLocaleString();
       document.getElementById('duration-text').innerText = (data.duration_ms || 0).toFixed(2) + ' ms';
       document.getElementById('scanned-chunks').innerText = data.total_scanned_chunks || 0;
 
-      // Update sidebar level counters
-      let errCount = 0, warnCount = 0, infoCount = 0, dbgCount = 0;
+      // Update Sidebar Counters
+      let cErr = 0, cWarn = 0, cInfo = 0, cDbg = 0;
       currentLogs.forEach(l => {
         const lvl = (l.level || '').toUpperCase();
-        if (lvl === 'ERROR' || lvl === 'FATAL') errCount++;
-        else if (lvl === 'WARN') warnCount++;
-        else if (lvl === 'INFO') infoCount++;
-        else if (lvl === 'DEBUG') dbgCount++;
+        if (lvl === 'ERROR' || lvl === 'FATAL') cErr++;
+        else if (lvl === 'WARN') cWarn++;
+        else if (lvl === 'INFO') cInfo++;
+        else if (lvl === 'DEBUG') cDbg++;
       });
-      document.getElementById('count-lvl-error').innerText = errCount;
-      document.getElementById('count-lvl-warn').innerText = warnCount;
-      document.getElementById('count-lvl-info').innerText = infoCount;
-      document.getElementById('count-lvl-debug').innerText = dbgCount;
+      document.getElementById('cnt-error').innerText = cErr;
+      document.getElementById('cnt-warn').innerText = cWarn;
+      document.getElementById('cnt-info').innerText = cInfo;
+      document.getElementById('cnt-debug').innerText = cDbg;
 
       const tbody = document.getElementById('logs-tbody');
       if (currentLogs.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="empty-state" style="text-align:center; padding: 3rem; color: var(--text-muted);">No logs match this search criteria.</td></tr>`;
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:3rem; color:var(--text-dim);">No logs match this search criteria.</td></tr>';
         return;
       }
 
       let html = '';
       currentLogs.forEach((log, idx) => {
         const lvl = (log.level || 'INFO').toUpperCase();
-        const timeStr = formatTimestamp(log.timestamp);
+        const timeStr = formatTime(log.timestamp);
         const service = log.service || 'unknown';
         const msg = escapeHtml(log.message || log.raw_json || '');
 
-        let tracePill = '';
+        let traceTag = '';
         if (log.trace_id) {
-          tracePill = `<span class="trace-pill" title="View Distributed Waterfall Trace (Hotkey: t)" onclick="openTraceWaterfall(event, '${escapeHtml(log.trace_id)}')">🔗 ${escapeHtml(log.trace_id)}</span>`;
+          traceTag = `<span class="tag-trace" title="Trace ID: ${escapeHtml(log.trace_id)}" onclick="openWaterfall(event, '${escapeHtml(log.trace_id)}')">[trace: ${escapeHtml(log.trace_id)}]</span>`;
         }
 
-        let dedupPill = '';
+        let repeatTag = '';
         if (log.repeat_count && log.repeat_count > 1) {
-          dedupPill = `<span class="dedup-pill" title="FinOps noise deduplication">x${log.repeat_count}</span>`;
+          repeatTag = `<span class="tag-repeat" title="FinOps noise deduplicated">[x${log.repeat_count}]</span>`;
         }
 
         html += `
           <tr class="log-row" id="row-${idx}" onclick="selectRow(${idx})">
             <td class="cell-time">${timeStr}</td>
-            <td class="cell-level">
-              <span class="badge badge-${lvl}">${lvl}</span>
-              ${dedupPill}
+            <td class="cell-lvl">
+              <span class="badge badge-${lvl}">[${lvl}]</span>
+              ${repeatTag}
             </td>
-            <td class="cell-service">
-              <span class="service-pill">${escapeHtml(service)}</span>
-              ${tracePill}
+            <td class="cell-svc">
+              <span>${escapeHtml(service)}</span>
+              ${traceTag}
             </td>
             <td class="cell-msg">${msg}</td>
           </tr>
@@ -1524,9 +1530,9 @@ NOT service:healthcheck</pre>
             <td colspan="4">
               <div class="details-box">
                 <div class="details-actions">
-                  <button class="btn btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="openContextModal(event, ${idx})">🔍 Surrounding Logs (±10s)</button>
-                  ${log.trace_id ? `<button class="btn" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="openTraceWaterfall(event, '${escapeHtml(log.trace_id)}')">🔗 Open Trace Waterfall</button>` : ''}
-                  <button class="btn btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="copyRawJson(event, ${idx})">Copy JSON (c)</button>
+                  <button class="btn btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.68rem;" onclick="openContext(event, ${idx})">Context (±10s)</button>
+                  ${log.trace_id ? `<button class="btn" style="padding:0.2rem 0.5rem; font-size:0.68rem;" onclick="openWaterfall(event, '${escapeHtml(log.trace_id)}')">Trace Waterfall</button>` : ''}
+                  <button class="btn btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.68rem;" onclick="copyJson(event, ${idx})">Copy JSON (c)</button>
                 </div>
                 <pre>${escapeHtml(formatJson(log.raw_json || log))}</pre>
               </div>
@@ -1538,14 +1544,14 @@ NOT service:healthcheck</pre>
     }
 
     function selectRow(idx) {
-      selectedRowIdx = idx;
+      selectedIdx = idx;
       document.querySelectorAll('.log-row').forEach((r, i) => {
         r.classList.toggle('selected', i === idx);
       });
-      toggleRowDetails(idx);
+      toggleDetails(idx);
     }
 
-    function toggleRowDetails(idx) {
+    function toggleDetails(idx) {
       const row = document.getElementById(`row-${idx}`);
       const details = document.getElementById(`details-${idx}`);
       if (!details) return;
@@ -1554,14 +1560,14 @@ NOT service:healthcheck</pre>
       row.classList.toggle('expanded', !isOpen);
     }
 
-    function copyRawJson(e, idx) {
+    function copyJson(e, idx) {
       if (e) e.stopPropagation();
       const log = currentLogs[idx];
       if (!log) return;
       const text = typeof log.raw_json === 'string' ? log.raw_json : JSON.stringify(log, null, 2);
       navigator.clipboard.writeText(text);
-      document.getElementById('status-hint').innerText = 'Copied to clipboard!';
-      setTimeout(() => { document.getElementById('status-hint').innerText = 'Ready'; }, 2000);
+      document.getElementById('status-hint').innerText = 'Copied!';
+      setTimeout(() => { document.getElementById('status-hint').innerText = 'Ready'; }, 1500);
     }
 
     function formatJson(val) {
@@ -1598,13 +1604,13 @@ NOT service:healthcheck</pre>
 
         const now = Date.now();
         const total = data.total_logs_ingested || 0;
-        if (lastIngestedCount > 0 && now > lastStatsTime) {
-          const deltaSec = (now - lastStatsTime) / 1000;
-          const rate = Math.max(0, Math.round((total - lastIngestedCount) / deltaSec));
-          document.getElementById('stat-rate').innerText = `${rate} /s`;
+        if (lastIngestCount > 0 && now > lastRateTime) {
+          const deltaSec = (now - lastRateTime) / 1000;
+          const rate = Math.max(0, Math.round((total - lastIngestCount) / deltaSec));
+          document.getElementById('stat-rate').innerText = `${rate}/s`;
         }
-        lastIngestedCount = total;
-        lastStatsTime = now;
+        lastIngestCount = total;
+        lastRateTime = now;
 
         document.getElementById('stat-total-logs').innerText = total.toLocaleString();
         document.getElementById('stat-disk-size').innerText = formatBytes(data.disk_bytes_compressed || 0);
@@ -1625,25 +1631,25 @@ NOT service:healthcheck</pre>
           });
           select.value = curVal;
 
-          // Render Sidebar Service Facets
+          // Render Sidebar Services
           document.getElementById('services-count').innerText = data.services.length;
-          const facetContainer = document.getElementById('services-facet-list');
-          let facetHtml = '';
+          const list = document.getElementById('services-list');
+          let html = '';
           data.services.forEach(s => {
             const isAct = (curVal === s) ? 'active' : '';
-            facetHtml += `
-              <button class="facet-btn ${isAct}" onclick="filterServiceFacet('${escapeHtml(s)}')">
+            html += `
+              <button class="nav-item ${isAct}" onclick="filterService('${escapeHtml(s)}')">
                 <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(s)}</span>
               </button>
             `;
           });
-          facetContainer.innerHTML = facetHtml;
+          list.innerHTML = html;
         }
-      } catch (err) {}
+      } catch (e) {}
     }
 
-    function filterServiceFacet(svc) {
-      document.getElementById('service-select').value = svc;
+    function filterService(s) {
+      document.getElementById('service-select').value = s;
       executeSearch();
     }
 
@@ -1652,109 +1658,105 @@ NOT service:healthcheck</pre>
         const resp = await fetch(apiUrl('/api/v1/enterprise/incident/rca'));
         if (!resp.ok) return;
         const data = await resp.json();
-        const banner = document.getElementById('rca-banner');
+        const strip = document.getElementById('incident-strip');
 
         if (data.has_incident && data.status === 'ACTIVE' && data.root_cause) {
-          rcaRootService = data.root_cause.service || '';
-          document.getElementById('rca-title').innerText = `Root Cause: ${data.root_cause.service}`;
-          document.getElementById('rca-details').innerText = `Primary fault: "${data.root_cause.error}"`;
+          rcaRoot = data.root_cause.service || '';
+          document.getElementById('incident-title').innerText = `Root Cause: ${data.root_cause.service}`;
+          document.getElementById('incident-desc').innerText = `Primary error: "${data.root_cause.error}"`;
           const impacted = (data.cascade && data.cascade.impacted_services) ? data.cascade.impacted_services.join(', ') : 'none';
           const totalErr = (data.cascade && data.cascade.total_errors) ? data.cascade.total_errors : 1;
-          document.getElementById('rca-cascade').innerText = `Cascade: ${totalErr} errors across [${impacted}]`;
-          banner.classList.add('active');
+          document.getElementById('incident-cascade').innerText = `Cascade: ${totalErr} errors across [${impacted}]`;
+          strip.classList.add('active');
         } else {
-          banner.classList.remove('active');
+          strip.classList.remove('active');
         }
       } catch (e) {}
     }
 
-    function filterByRcaRoot() {
-      if (rcaRootService) {
-        document.getElementById('service-select').value = rcaRootService;
+    function filterRcaRoot() {
+      if (rcaRoot) {
+        document.getElementById('service-select').value = rcaRoot;
         executeSearch();
       }
     }
 
     function dismissRca() {
-      document.getElementById('rca-banner').classList.remove('active');
+      document.getElementById('incident-strip').classList.remove('active');
     }
 
-    /* Trace Waterfall Visualizer 2.0 */
-    let currentTraceData = null;
-    async function openTraceWaterfall(e, traceId) {
+    /* Trace Waterfall Modal */
+    let activeTrace = null;
+    async function openWaterfall(e, traceId) {
       if (e) e.stopPropagation();
       document.getElementById('trace-modal').classList.add('active');
       document.getElementById('wf-trace-id').innerText = traceId;
-      document.getElementById('wf-gantt').innerHTML = '<div style="color:var(--text-muted); padding:1rem;">Loading trace spans...</div>';
-      document.getElementById('wf-detail-box').style.display = 'none';
+      document.getElementById('wf-timeline').innerHTML = '<div style="color:var(--text-dim); padding:1rem; font-family:var(--mono);">Loading trace spans...</div>';
+      document.getElementById('wf-selected-span').style.display = 'none';
 
       try {
         const resp = await fetch(apiUrl(`/api/v1/trace?trace_id=${encodeURIComponent(traceId)}`));
-        if (!resp.ok) throw new Error('Failed to load trace');
-        currentTraceData = await resp.json();
+        if (!resp.ok) throw new Error('Trace fetch failed');
+        activeTrace = await resp.json();
 
-        document.getElementById('wf-duration').innerText = `${currentTraceData.total_duration_ms} ms`;
-        document.getElementById('wf-spans').innerText = currentTraceData.spans_count;
-        document.getElementById('wf-axis-mid').innerText = `${Math.round(currentTraceData.total_duration_ms / 2)} ms`;
-        document.getElementById('wf-axis-end').innerText = `${currentTraceData.total_duration_ms} ms`;
+        document.getElementById('wf-duration').innerText = `${activeTrace.total_duration_ms} ms`;
+        document.getElementById('wf-spans').innerText = activeTrace.spans_count;
+        document.getElementById('wf-axis-mid').innerText = `${Math.round(activeTrace.total_duration_ms / 2)} ms`;
+        document.getElementById('wf-axis-end').innerText = `${activeTrace.total_duration_ms} ms`;
 
-        renderWaterfallGantt(currentTraceData);
+        renderWaterfall(activeTrace);
       } catch (err) {
-        document.getElementById('wf-gantt').innerHTML = `<div style="color:#ef4444; padding:1rem;">Error loading trace: ${err.message}</div>`;
+        document.getElementById('wf-timeline').innerHTML = `<div style="color:var(--color-error); padding:1rem; font-family:var(--mono);">Error loading trace: ${err.message}</div>`;
       }
     }
 
-    function renderWaterfallGantt(data) {
-      const container = document.getElementById('wf-gantt');
+    function renderWaterfall(data) {
+      const container = document.getElementById('wf-timeline');
       if (!data.spans || data.spans.length === 0) {
-        container.innerHTML = '<div style="color:var(--text-muted); padding:1rem;">No spans found for this trace.</div>';
+        container.innerHTML = '<div style="color:var(--text-dim); padding:1rem;">No spans found for trace.</div>';
         return;
       }
 
       const totalMs = Math.max(1, data.total_duration_ms);
-      let maxDurationSpanIdx = 0;
-      data.spans.forEach((s, idx) => {
-        if (s.duration_ms > data.spans[maxDurationSpanIdx].duration_ms) maxDurationSpanIdx = idx;
+      let maxIdx = 0;
+      data.spans.forEach((s, i) => {
+        if (s.duration_ms > data.spans[maxIdx].duration_ms) maxIdx = i;
       });
 
       let html = '';
-      data.spans.forEach((span, idx) => {
-        const offsetPct = Math.min(94, Math.max(0, (span.offset_ms / totalMs) * 100));
-        let widthPct = Math.max(5, (span.duration_ms / totalMs) * 100);
+      data.spans.forEach((span, i) => {
+        const offsetPct = Math.min(95, Math.max(0, (span.offset_ms / totalMs) * 100));
+        let widthPct = Math.max(4, (span.duration_ms / totalMs) * 100);
         if (offsetPct + widthPct > 100) widthPct = 100 - offsetPct;
 
         const lvl = (span.level || 'INFO').toUpperCase();
-        const isBottleneck = (idx === maxDurationSpanIdx && span.duration_ms > 10);
+        const isBottleneck = (i === maxIdx && span.duration_ms > 10);
         const bottleneckClass = isBottleneck ? 'bottleneck' : '';
-        const bottleneckBadge = isBottleneck ? '<span style="color:#facc15; font-size:0.65rem; margin-left:0.3rem;">⚡ Bottleneck</span>' : '';
+        const bottleneckNote = isBottleneck ? ' [MAX LATENCY]' : '';
 
         html += `
-          <div class="gantt-row" onclick="showSpanDetails(${idx})">
-            <div class="gantt-service-col">
-              <div class="gantt-service-name" title="${escapeHtml(span.service)}">${escapeHtml(span.service)}</div>
-              <div class="gantt-service-meta">${span.duration_ms}ms ${bottleneckBadge}</div>
-            </div>
-            <div class="gantt-bar-container">
-              <div class="gantt-bar ${lvl} ${bottleneckClass}" style="left:${offsetPct.toFixed(1)}%; width:${widthPct.toFixed(1)}%;" title="${escapeHtml(span.message)}">
+          <div class="waterfall-row" onclick="selectSpan(${i})">
+            <div class="waterfall-svc" title="${escapeHtml(span.service)}">${escapeHtml(span.service)}${bottleneckNote}</div>
+            <div class="waterfall-track">
+              <div class="waterfall-bar ${lvl} ${bottleneckClass}" style="left:${offsetPct.toFixed(1)}%; width:${widthPct.toFixed(1)}%;">
                 <span>+${span.offset_ms}ms (${span.duration_ms}ms) ${escapeHtml(span.message)}</span>
               </div>
             </div>
           </div>
         `;
       });
-
       container.innerHTML = html;
     }
 
-    function showSpanDetails(idx) {
-      if (!currentTraceData || !currentTraceData.spans[idx]) return;
-      const s = currentTraceData.spans[idx];
-      const box = document.getElementById('wf-detail-box');
+    function selectSpan(idx) {
+      if (!activeTrace || !activeTrace.spans[idx]) return;
+      const s = activeTrace.spans[idx];
+      const box = document.getElementById('wf-selected-span');
       box.style.display = 'block';
       box.innerHTML = `
-        <div style="font-weight:700; color:#38bdf8; margin-bottom:0.25rem;">Span: ${escapeHtml(s.service)} (${s.level}) - ${s.duration_ms}ms</div>
-        <div>Message: ${escapeHtml(s.message)}</div>
-        <div style="color:var(--text-muted); font-size:0.7rem; margin-top:0.25rem;">Timestamp: ${new Date(s.timestamp_ms).toISOString()} (offset: +${s.offset_ms}ms)</div>
+        <div style="color:var(--color-info); font-weight:700;">${escapeHtml(s.service)} [${s.level}] - ${s.duration_ms}ms</div>
+        <div>${escapeHtml(s.message)}</div>
+        <div style="color:var(--text-dim); font-size:0.68rem; margin-top:0.2rem;">Timestamp: ${new Date(s.timestamp_ms).toISOString()} (offset: +${s.offset_ms}ms)</div>
       `;
     }
 
@@ -1762,16 +1764,16 @@ NOT service:healthcheck</pre>
       document.getElementById('trace-modal').classList.remove('active');
     }
 
-    /* Context / Surrounding Logs Modal */
-    async function openContextModal(e, idx) {
+    /* Context Modal (±10s) */
+    async function openContext(e, idx) {
       if (e) e.stopPropagation();
       const log = currentLogs[idx];
       if (!log) return;
 
       document.getElementById('context-modal').classList.add('active');
       const tbody = document.getElementById('context-tbody');
-      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:1.5rem; color:var(--text-muted);">Loading surrounding context...</td></tr>';
-      document.getElementById('context-meta').innerText = `Service: ${log.service} | Target Time: ${new Date(log.timestamp).toISOString()}`;
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:1.5rem; color:var(--text-dim); font-family:var(--mono);">Loading surrounding context...</td></tr>';
+      document.getElementById('context-meta').innerText = `Service: ${log.service} | Target Timestamp: ${new Date(log.timestamp).toISOString()}`;
 
       try {
         const fromTs = log.timestamp - 10000;
@@ -1779,24 +1781,24 @@ NOT service:healthcheck</pre>
         const resp = await fetch(apiUrl(`/api/v1/search?service=${encodeURIComponent(log.service)}&from=${fromTs}&to=${toTs}&limit=50`));
         if (!resp.ok) throw new Error('Context fetch error');
         const data = await resp.json();
-        const ctxLogs = data.logs || [];
+        const logs = data.logs || [];
 
         let html = '';
-        ctxLogs.forEach(cl => {
+        logs.forEach(cl => {
           const isTarget = (cl.timestamp === log.timestamp && cl.message === log.message);
-          const rowStyle = isTarget ? 'background:#1e293b; font-weight:700;' : '';
+          const rowStyle = isTarget ? 'background:#1c253d; font-weight:700;' : '';
           html += `
             <tr style="${rowStyle}">
-              <td class="cell-time">${formatTimestamp(cl.timestamp)}</td>
-              <td class="cell-level"><span class="badge badge-${(cl.level||'INFO').toUpperCase()}">${cl.level||'INFO'}</span></td>
-              <td class="cell-service"><span class="service-pill">${escapeHtml(cl.service)}</span></td>
+              <td class="cell-time">${formatTime(cl.timestamp)}</td>
+              <td class="cell-lvl"><span class="badge badge-${(cl.level||'INFO').toUpperCase()}">[${cl.level||'INFO'}]</span></td>
+              <td class="cell-svc">${escapeHtml(cl.service)}</td>
               <td class="cell-msg">${escapeHtml(cl.message || cl.raw_json || '')}</td>
             </tr>
           `;
         });
-        tbody.innerHTML = html || '<tr><td colspan="4" style="text-align:center;">No surrounding logs found.</td></tr>';
+        tbody.innerHTML = html || '<tr><td colspan="4" style="text-align:center;">No logs in window.</td></tr>';
       } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="4" style="color:#ef4444; text-align:center;">Failed to load context: ${err.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" style="color:var(--color-error); text-align:center;">Error: ${err.message}</td></tr>`;
       }
     }
 
@@ -1804,7 +1806,6 @@ NOT service:healthcheck</pre>
       document.getElementById('context-modal').classList.remove('active');
     }
 
-    /* Keyboard Shortcuts Modal */
     function openShortcutsModal() {
       document.getElementById('shortcuts-modal').classList.add('active');
     }
@@ -1820,7 +1821,7 @@ NOT service:healthcheck</pre>
     }
 
     /* Export Functions */
-    function exportResults(format) {
+    function exportData(fmt) {
       if (!currentLogs.length) {
         alert('No logs to export');
         return;
@@ -1829,7 +1830,7 @@ NOT service:healthcheck</pre>
       let mime = 'application/json';
       let ext = 'json';
 
-      if (format === 'json') {
+      if (fmt === 'json') {
         content = JSON.stringify(currentLogs, null, 2);
       } else {
         mime = 'text/csv';
@@ -1844,17 +1845,14 @@ NOT service:healthcheck</pre>
       const blob = new Blob([content], { type: mime });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `siftlog-export-${Date.now()}.${ext}`;
+      a.download = `siftlog-${Date.now()}.${ext}`;
       a.click();
     }
 
-    /* Keyboard Event Listener (Vim & Linear style) */
+    /* Global Keyboard Hotkeys */
     window.addEventListener('keydown', (e) => {
-      // Don't trigger shortcuts when typing inside an input or textarea
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
-        if (e.key === 'Escape') {
-          e.target.blur();
-        }
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') {
+        if (e.key === 'Escape') e.target.blur();
         return;
       }
 
@@ -1864,27 +1862,27 @@ NOT service:healthcheck</pre>
       } else if (e.key === 'j' || e.key === 'ArrowDown') {
         e.preventDefault();
         if (currentLogs.length > 0) {
-          const nextIdx = Math.min(currentLogs.length - 1, selectedRowIdx + 1);
-          selectRow(nextIdx);
-          const el = document.getElementById(`row-${nextIdx}`);
+          const next = Math.min(currentLogs.length - 1, selectedIdx + 1);
+          selectRow(next);
+          const el = document.getElementById(`row-${next}`);
           if (el) el.scrollIntoView({ block: 'nearest' });
         }
       } else if (e.key === 'k' || e.key === 'ArrowUp') {
         e.preventDefault();
         if (currentLogs.length > 0) {
-          const prevIdx = Math.max(0, selectedRowIdx - 1);
-          selectRow(prevIdx);
-          const el = document.getElementById(`row-${prevIdx}`);
+          const prev = Math.max(0, selectedIdx - 1);
+          selectRow(prev);
+          const el = document.getElementById(`row-${prev}`);
           if (el) el.scrollIntoView({ block: 'nearest' });
         }
       } else if (e.key === 'Enter') {
-        if (selectedRowIdx >= 0) toggleRowDetails(selectedRowIdx);
+        if (selectedIdx >= 0) toggleDetails(selectedIdx);
       } else if (e.key === 't') {
-        if (selectedRowIdx >= 0 && currentLogs[selectedRowIdx] && currentLogs[selectedRowIdx].trace_id) {
-          openTraceWaterfall(null, currentLogs[selectedRowIdx].trace_id);
+        if (selectedIdx >= 0 && currentLogs[selectedIdx] && currentLogs[selectedIdx].trace_id) {
+          openWaterfall(null, currentLogs[selectedIdx].trace_id);
         }
       } else if (e.key === 'c') {
-        if (selectedRowIdx >= 0) copyRawJson(null, selectedRowIdx);
+        if (selectedIdx >= 0) copyJson(null, selectedIdx);
       } else if (e.key === 's') {
         toggleLiveTail();
       } else if (e.key === 'b') {
@@ -1899,7 +1897,6 @@ NOT service:healthcheck</pre>
       }
     });
 
-    // Initial load
     fetchStats();
     fetchRca();
     executeSearch();

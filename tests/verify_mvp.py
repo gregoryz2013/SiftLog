@@ -112,7 +112,7 @@ def main():
         # 2. UI
         status, html = http_get("/")
         assert status == 200
-        assert b"SiftLog - Log Engine" in html
+        assert b"SiftLog" in html
         print("PASS: / (web ui)")
 
         # 3. Standard JSON Array Ingestion
@@ -243,6 +243,43 @@ def main():
         assert len(hist_data["buckets"]) > 0
         assert "step_seconds" in hist_data
         print("PASS: Timeline activity histogram API (/api/v1/histogram)")
+
+        # Test FinOps Noise Deduplication
+        now_ms = int(time.time() * 1000)
+        dedup_batch = [
+            {"timestamp": now_ms + i, "service": "dedup-svc", "level": "INFO", "message": "Health check ping"}
+            for i in range(15)
+        ]
+        status, _ = http_post_json("/api/v1/logs", dedup_batch)
+        assert status == 200
+        time.sleep(2.5) # allow background flush
+        status, res = http_get("/api/v1/search?service=dedup-svc")
+        assert status == 200
+        d_data = json.loads(res)
+        assert d_data["total_matched"] == 1
+        assert d_data["logs"][0].get("repeat_count") == 15
+        print("PASS: FinOps noise deduplication")
+
+        # Test Distributed Trace Waterfall API
+        trc_id = f"trc-test-{int(time.time())}"
+        trace_batch = [
+            {"timestamp": now_ms + 100, "service": "ingress", "level": "INFO", "message": "GET /checkout", "trace_id": trc_id},
+            {"timestamp": now_ms + 180, "service": "payment", "level": "INFO", "message": "Charged $50", "trace_id": trc_id}
+        ]
+        status, _ = http_post_json("/api/v1/logs", trace_batch)
+        assert status == 200
+        status, res = http_get(f"/api/v1/trace?trace_id={trc_id}")
+        assert status == 200
+        trc_data = json.loads(res)
+        assert trc_data.get("spans_count") == 2
+        print("PASS: distributed trace waterfall API (/api/v1/trace)")
+
+        # Test RCA Endpoint
+        status, res = http_get("/api/v1/enterprise/incident/rca")
+        assert status == 200
+        rca_data = json.loads(res)
+        assert "has_incident" in rca_data
+        print("PASS: enterprise RCA incident endpoint (/api/v1/enterprise/incident/rca)")
 
     finally:
         proc.terminate()

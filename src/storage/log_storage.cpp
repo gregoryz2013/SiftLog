@@ -368,12 +368,7 @@ std::vector<LogEntry> LogStorage::search_chunk_file(const ChunkMeta& meta, const
 
         try {
             nlohmann::json j = nlohmann::json::parse(line);
-            LogEntry entry;
-            entry.timestamp = j.value("timestamp", static_cast<int64_t>(0));
-            entry.level = j.value("level", "INFO");
-            entry.service = j.value("service", "default");
-            entry.message = j.value("message", "");
-            entry.raw_json = j.value("raw_json", "");
+            LogEntry entry = LogEntry::from_json(j);
 
             if (matches_filter(entry, params, parser)) {
                 matches.push_back(std::move(entry));

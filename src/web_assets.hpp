@@ -1,7 +1,8 @@
 #pragma once
 #include <string_view>
 
-inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
+inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -555,6 +556,42 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
     }
     tr.log-row.expanded { background: #111726; }
 
+    .cell-caret {
+      width: 24px;
+      min-width: 24px;
+      max-width: 24px;
+      padding: 0.35rem 0.2rem 0.35rem 0.45rem;
+      text-align: center;
+      vertical-align: top;
+    }
+    .row-caret {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      border-radius: 2px;
+      color: var(--text-dim);
+      margin-top: 2px;
+      transition: color 0.15s ease;
+    }
+    .row-caret svg {
+      width: 8px;
+      height: 8px;
+      display: block;
+      transform-origin: 50% 50%;
+      transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    tr.log-row:hover .row-caret {
+      color: var(--text-muted);
+    }
+    tr.log-row.expanded .row-caret {
+      color: var(--color-info);
+    }
+    tr.log-row.expanded .row-caret svg {
+      transform: rotate(90deg);
+    }
+
     .cell-time { width: 170px; color: var(--text-muted); white-space: nowrap; }
     .cell-lvl { width: 85px; white-space: nowrap; }
     .cell-svc { width: 155px; white-space: nowrap; }
@@ -1022,14 +1059,15 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
           <table>
             <thead>
               <tr>
-                <th>Timestamp</th>
-                <th>Level</th>
-                <th>Service</th>
+                <th style="width:24px; min-width:24px; padding:0.35rem 0.2rem 0.35rem 0.45rem;"></th>
+                <th style="width:170px;">Timestamp</th>
+                <th style="width:85px;">Level</th>
+                <th style="width:155px;">Service</th>
                 <th>Message</th>
               </tr>
             </thead>
             <tbody id="logs-tbody">
-              <tr><td colspan="4" style="text-align:center; padding: 3rem; color: var(--text-dim);">No logs ingested yet or no matches found.</td></tr>
+              <tr><td colspan="5" style="text-align:center; padding: 3rem; color: var(--text-dim);">No logs ingested yet or no matches found.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1495,7 +1533,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
 
       const tbody = document.getElementById('logs-tbody');
       if (currentLogs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:3rem; color:var(--text-dim);">No logs match this search criteria.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-dim);">No logs match this search criteria.</td></tr>';
         return;
       }
 
@@ -1518,6 +1556,11 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
 
         html += `
           <tr class="log-row" id="row-${idx}" onclick="selectRow(${idx})">
+            <td class="cell-caret">
+              <span class="row-caret" title="Toggle details">
+                <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2l4 3-4 3"/></svg>
+              </span>
+            </td>
             <td class="cell-time">${timeStr}</td>
             <td class="cell-lvl">
               <span class="badge badge-${lvl}">[${lvl}]</span>
@@ -1530,7 +1573,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
             <td class="cell-msg">${msg}</td>
           </tr>
           <tr class="details-row" id="details-${idx}" style="display:none;">
-            <td colspan="4">
+            <td colspan="5">
               <div class="details-box">
                 <div class="details-actions">
                   <button class="btn btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.68rem;" onclick="openContext(event, ${idx})">Context (±10s)</button>
@@ -1546,12 +1589,14 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
       tbody.innerHTML = html;
     }
 
-    function selectRow(idx) {
+    function selectRow(idx, toggle = true) {
       selectedIdx = idx;
       document.querySelectorAll('.log-row').forEach((r, i) => {
         r.classList.toggle('selected', i === idx);
       });
-      toggleDetails(idx);
+      if (toggle) {
+        toggleDetails(idx);
+      }
     }
 
     function toggleDetails(idx) {
@@ -1866,7 +1911,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
         e.preventDefault();
         if (currentLogs.length > 0) {
           const next = Math.min(currentLogs.length - 1, selectedIdx + 1);
-          selectRow(next);
+          selectRow(next, false);
           const el = document.getElementById(`row-${next}`);
           if (el) el.scrollIntoView({ block: 'nearest' });
         }
@@ -1874,7 +1919,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
         e.preventDefault();
         if (currentLogs.length > 0) {
           const prev = Math.max(0, selectedIdx - 1);
-          selectRow(prev);
+          selectRow(prev, false);
           const el = document.getElementById(`row-${prev}`);
           if (el) el.scrollIntoView({ block: 'nearest' });
         }
@@ -1908,4 +1953,5 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
   </script>
 </body>
 </html>
+
 )SIFTLOG_HTML";

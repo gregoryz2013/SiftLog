@@ -3,22 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SiftLog Enterprise - Log Engine & Distributed Tracing</title>
+  <title>SiftLog Enterprise - Observability & Distributed Tracing</title>
   <style>
     :root {
-      --bg: #0b0f19;
+      --bg: #07090e;
+      --bg-surface: #0e131f;
       --card-bg: #111827;
-      --card-border: #1f2937;
-      --header-bg: #111827;
-      --text: #f9fafb;
-      --text-muted: #9ca3af;
-      --accent: #2563eb;
-      --accent-hover: #1d4ed8;
-      --info: #3b82f6;
-      --warn: #d97706;
-      --error: #dc2626;
-      --debug: #7c3aed;
-      --success: #059669;
+      --card-border: #1e293b;
+      --header-bg: rgba(15, 23, 42, 0.85);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --accent-glow: rgba(59, 130, 246, 0.25);
+      --info: #38bdf8;
+      --warn: #f59e0b;
+      --error: #ef4444;
+      --debug: #a855f7;
+      --success: #10b981;
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
@@ -33,105 +35,99 @@
       min-height: 100vh;
       display: flex;
       flex-direction: column;
+      overflow-x: hidden;
     }
 
+    /* Top Navigation Header */
     header {
       background: var(--header-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       border-bottom: 1px solid var(--card-border);
       position: sticky;
       top: 0;
       z-index: 100;
-      padding: 0.6rem 1.25rem;
+      padding: 0.55rem 1.25rem;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
     }
 
-    .brand {
+    .brand-section {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      font-weight: 700;
-      font-size: 1.05rem;
-      letter-spacing: -0.01em;
+      gap: 0.65rem;
     }
-    .badge-engine {
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-weight: 800;
+      font-size: 1.15rem;
+      letter-spacing: -0.02em;
+      color: #fff;
+    }
+    .brand-logo svg {
+      width: 22px;
+      height: 22px;
+      fill: none;
+      stroke: #38bdf8;
+      stroke-width: 2;
+    }
+    .badge-tag {
       background: #1e293b;
       color: #94a3b8;
       border: 1px solid #334155;
-      padding: 0.15rem 0.4rem;
+      padding: 0.15rem 0.45rem;
       border-radius: 4px;
       font-size: 0.68rem;
       font-weight: 600;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.03em;
+    }
+    .badge-enterprise {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2));
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.4);
     }
     .badge-finops {
       background: rgba(16, 185, 129, 0.15);
       color: #34d399;
       border: 1px solid rgba(16, 185, 129, 0.4);
-      padding: 0.15rem 0.4rem;
-      border-radius: 4px;
-      font-size: 0.68rem;
-      font-weight: 600;
     }
 
-    .stats-bar {
+    /* Live Header Metrics */
+    .metrics-bar {
       display: flex;
       align-items: center;
       gap: 1.5rem;
     }
-    .stat-item {
+    .metric-item {
       display: flex;
       flex-direction: column;
     }
-    .stat-label {
-      font-size: 0.65rem;
+    .metric-label {
+      font-size: 0.62rem;
       text-transform: uppercase;
       color: var(--text-muted);
       letter-spacing: 0.05em;
     }
-    .stat-val {
+    .metric-value {
       font-family: var(--mono);
-      font-weight: 600;
-      font-size: 0.82rem;
+      font-weight: 700;
+      font-size: 0.85rem;
       color: var(--text);
     }
+    .metric-rate {
+      color: #38bdf8;
+    }
 
-    .header-actions {
+    /* Header Controls */
+    .header-controls {
       display: flex;
       align-items: center;
       gap: 0.5rem;
     }
-
-    .live-toggle {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      padding: 0.35rem 0.75rem;
-      border-radius: 6px;
-      cursor: pointer;
-      user-select: none;
-      font-size: 0.8rem;
-      transition: all 0.15s ease;
-    }
-    .live-toggle:hover {
-      border-color: #374151;
-    }
-    .pulse-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: #6b7280;
-      transition: background 0.2s ease;
-    }
-    .live-active .pulse-dot {
-      background: var(--success);
-      box-shadow: 0 0 6px var(--success);
-    }
-
     .btn {
       background: var(--accent);
       color: #fff;
@@ -141,25 +137,148 @@
       font-weight: 500;
       font-size: 0.8rem;
       cursor: pointer;
-      transition: background 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.15s ease;
+      user-select: none;
     }
     .btn:hover { background: var(--accent-hover); }
     .btn-secondary {
-      background: #1f2937;
+      background: #1e293b;
       color: var(--text);
-      border: 1px solid #374151;
+      border: 1px solid #334155;
     }
-    .btn-secondary:hover { background: #374151; }
+    .btn-secondary:hover { background: #334155; }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid transparent;
+    }
+    .btn-ghost:hover {
+      background: #1e293b;
+      color: var(--text);
+      border-color: #334155;
+    }
 
-    .container {
-      max-width: 1440px;
-      width: 100%;
-      margin: 0 auto;
-      padding: 1rem 1.25rem;
+    .live-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      padding: 0.35rem 0.75rem;
+      border-radius: 6px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 0.78rem;
+      font-weight: 600;
+      transition: all 0.15s ease;
+    }
+    .live-toggle:hover { border-color: #374151; }
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #64748b;
+      transition: all 0.2s ease;
+    }
+    .live-active {
+      border-color: rgba(16, 185, 129, 0.5);
+      background: rgba(16, 185, 129, 0.1);
+      color: #34d399;
+    }
+    .live-active .pulse-dot {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    /* Main Workspace Layout */
+    .app-layout {
+      display: flex;
+      flex: 1;
+      height: calc(100vh - 49px);
+      overflow: hidden;
+    }
+
+    /* Sidebar Facets */
+    .sidebar {
+      width: 260px;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      transition: width 0.2s ease;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+    .sidebar.collapsed {
+      width: 0;
+      border-right: none;
+      overflow: hidden;
+    }
+    .sidebar-section {
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .sidebar-title {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      font-weight: 700;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .preset-list, .facet-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .preset-btn, .facet-btn {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.35rem 0.55rem;
+      border-radius: 5px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.12s ease;
+    }
+    .preset-btn:hover, .facet-btn:hover {
+      background: #1e293b;
+      color: var(--text);
+    }
+    .preset-btn.active, .facet-btn.active {
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      font-weight: 600;
+    }
+    .facet-count {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      background: #1e293b;
+      padding: 0.05rem 0.35rem;
+      border-radius: 4px;
+      color: var(--text-muted);
+    }
+
+    /* Main Content Area */
+    .main-content {
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 0.85rem;
+      overflow-y: auto;
+      padding: 0.85rem 1.25rem;
+      gap: 0.75rem;
     }
 
     /* RCA Incident Banner */
@@ -172,55 +291,41 @@
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
-      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
-      animation: pulse-red 2s infinite ease-in-out;
+      box-shadow: 0 4px 16px rgba(239, 68, 68, 0.25);
+      animation: pulse-border 2s infinite ease-in-out;
     }
-    @keyframes pulse-red {
+    @keyframes pulse-border {
       0%, 100% { border-color: #ef4444; }
-      50% { border-color: #f87171; }
+      50% { border-color: #f87171; box-shadow: 0 4px 20px rgba(239, 68, 68, 0.35); }
     }
     .rca-banner.active { display: flex; }
-    .rca-content { display: flex; flex-direction: column; gap: 0.25rem; }
-    .rca-topline { display: flex; align-items: center; gap: 0.6rem; }
+    .rca-info { display: flex; flex-direction: column; gap: 0.25rem; }
+    .rca-topline { display: flex; align-items: center; gap: 0.5rem; }
     .rca-badge {
       background: #dc2626;
       color: #fff;
-      font-weight: 700;
-      font-size: 0.7rem;
+      font-weight: 800;
+      font-size: 0.68rem;
       padding: 0.15rem 0.45rem;
       border-radius: 4px;
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
-    .rca-title { font-weight: 600; font-size: 0.9rem; color: #fecaca; }
+    .rca-title { font-weight: 700; font-size: 0.92rem; color: #fecaca; }
     .rca-details { color: #fca5a5; font-family: var(--mono); font-size: 0.8rem; }
-    .rca-cascade { color: #fed7aa; font-size: 0.75rem; margin-top: 0.15rem; }
-    .rca-actions { display: flex; gap: 0.5rem; align-items: center; }
+    .rca-cascade { color: #fed7aa; font-size: 0.75rem; }
+    .rca-actions { display: flex; gap: 0.5rem; }
 
-    /* Alert Banner */
-    .alert-banner {
-      display: none;
-      background: rgba(217, 119, 6, 0.15);
-      border: 1px solid var(--warn);
-      color: #fbbf24;
-      padding: 0.5rem 0.85rem;
-      border-radius: 6px;
-      align-items: center;
-      justify-content: space-between;
-      font-size: 0.8rem;
-    }
-    .alert-banner.active { display: flex; }
-
-    .filter-card {
+    /* Search & Filter Toolbar */
+    .search-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 8px;
-      padding: 0.85rem 1rem;
+      padding: 0.75rem 1rem;
       display: flex;
       flex-direction: column;
-      gap: 0.75rem;
+      gap: 0.65rem;
     }
-
     .search-row {
       display: flex;
       gap: 0.5rem;
@@ -230,46 +335,93 @@
       position: relative;
       flex: 1;
     }
+    .search-icon {
+      position: absolute;
+      left: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      pointer-events: none;
+    }
     #query-input {
       width: 100%;
-      background: #0d131f;
+      background: #090e17;
       border: 1px solid var(--card-border);
       border-radius: 6px;
-      padding: 0.45rem 0.75rem;
+      padding: 0.5rem 0.75rem 0.5rem 2.2rem;
       color: var(--text);
       font-family: var(--mono);
-      font-size: 0.82rem;
+      font-size: 0.85rem;
       outline: none;
-      transition: border-color 0.15s ease;
+      transition: all 0.15s ease;
     }
-    #query-input:focus { border-color: var(--accent); }
+    #query-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-glow);
+    }
+    .clear-search-btn {
+      position: absolute;
+      right: 0.6rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.9rem;
+      padding: 0.2rem;
+    }
+    .clear-search-btn:hover { color: #fff; }
 
-    .filters-secondary {
+    .quick-chips {
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .quick-chip {
+      background: #1e293b;
+      color: #94a3b8;
+      border: 1px solid #334155;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-family: var(--mono);
+      cursor: pointer;
+      transition: all 0.12s ease;
+    }
+    .quick-chip:hover {
+      background: #334155;
+      color: #fff;
+    }
+
+    .filter-secondary-row {
       display: flex;
       gap: 1rem;
       align-items: center;
       flex-wrap: wrap;
     }
-    .filter-group {
+    .filter-item {
       display: flex;
       align-items: center;
       gap: 0.4rem;
     }
     .filter-label {
       color: var(--text-muted);
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       text-transform: uppercase;
-      font-weight: 600;
+      font-weight: 700;
     }
     select {
-      background: #0d131f;
+      background: #090e17;
       border: 1px solid var(--card-border);
       border-radius: 6px;
-      padding: 0.35rem 0.5rem;
+      padding: 0.35rem 0.55rem;
       color: var(--text);
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       outline: none;
     }
+    select:focus { border-color: var(--accent); }
 
     .level-pills {
       display: flex;
@@ -279,20 +431,25 @@
       padding: 0.2rem 0.5rem;
       border-radius: 4px;
       font-size: 0.72rem;
-      font-weight: 600;
+      font-weight: 700;
       cursor: pointer;
-      border: 1px solid #374151;
-      background: #1f2937;
+      border: 1px solid #334155;
+      background: #1e293b;
       color: var(--text-muted);
       user-select: none;
+      transition: all 0.15s ease;
     }
+    .level-pill:hover { background: #334155; }
     .level-pill.active {
       background: var(--accent);
       border-color: var(--accent);
       color: #fff;
     }
+    .level-pill.active[data-lvl="ERROR"] { background: #dc2626; border-color: #dc2626; }
+    .level-pill.active[data-lvl="WARN"] { background: #d97706; border-color: #d97706; }
+    .level-pill.active[data-lvl="INFO"] { background: #2563eb; border-color: #2563eb; }
 
-    /* Histogram Canvas Card */
+    /* Interactive Timeline Histogram Card */
     .hist-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
@@ -301,6 +458,7 @@
       display: flex;
       flex-direction: column;
       gap: 0.4rem;
+      position: relative;
     }
     .hist-header {
       display: flex;
@@ -311,23 +469,42 @@
       font-size: 0.72rem;
       text-transform: uppercase;
       color: var(--text-muted);
-      font-weight: 600;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
     }
     .hist-legend {
       display: flex;
-      gap: 0.75rem;
+      gap: 0.85rem;
       font-size: 0.7rem;
       color: var(--text-muted);
     }
-    .legend-item { display: flex; align-items: center; gap: 0.3rem; }
+    .legend-item { display: flex; align-items: center; gap: 0.35rem; }
     .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
     #hist-canvas {
       width: 100%;
-      height: 48px;
+      height: 52px;
       display: block;
+      cursor: crosshair;
+    }
+    .hist-tooltip {
+      position: absolute;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 5px;
+      padding: 0.35rem 0.55rem;
+      font-size: 0.7rem;
+      font-family: var(--mono);
+      color: #f1f5f9;
+      pointer-events: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      z-index: 50;
+      display: none;
+      white-space: nowrap;
     }
 
-    /* Logs Table */
+    /* Logs Table Card */
     .table-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
@@ -336,26 +513,32 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      min-height: 400px;
     }
-    .table-header-bar {
-      padding: 0.6rem 1rem;
+    .table-toolbar {
+      padding: 0.55rem 1rem;
       border-bottom: 1px solid var(--card-border);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      background: #131d2e;
+      background: #0d131f;
     }
-    .table-metrics {
+    .table-stats {
       display: flex;
       gap: 1.25rem;
       font-size: 0.75rem;
       color: var(--text-muted);
       font-family: var(--mono);
     }
+    .table-options {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
     .table-container {
       flex: 1;
       overflow-y: auto;
-      max-height: 580px;
+      max-height: 560px;
     }
     table {
       width: 100%;
@@ -363,9 +546,9 @@
       text-align: left;
     }
     th {
-      background: #0f172a;
+      background: #090e17;
       padding: 0.5rem 0.75rem;
-      font-size: 0.7rem;
+      font-size: 0.68rem;
       text-transform: uppercase;
       color: var(--text-muted);
       letter-spacing: 0.05em;
@@ -375,42 +558,54 @@
       border-bottom: 1px solid var(--card-border);
     }
     td {
-      padding: 0.45rem 0.75rem;
-      border-bottom: 1px solid #1a2234;
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid #172033;
       font-family: var(--mono);
       font-size: 0.78rem;
       vertical-align: top;
     }
-    tr.log-row { cursor: pointer; transition: background 0.1s ease; }
+    tr.log-row {
+      cursor: pointer;
+      transition: background 0.1s ease;
+    }
     tr.log-row:hover { background: #172033; }
-    tr.log-row.expanded { background: #1c273e; }
+    tr.log-row.selected {
+      background: #1c273e !important;
+      outline: 1px solid #3b82f6;
+    }
+    tr.log-row.expanded { background: #131b2e; }
 
-    .cell-time { width: 170px; color: #94a3b8; white-space: nowrap; }
-    .cell-level { width: 85px; white-space: nowrap; }
-    .cell-service { width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .density-compact td { padding: 0.25rem 0.65rem; font-size: 0.74rem; }
+    .wrap-text .cell-msg { white-space: normal; }
+    .clip-text .cell-msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 600px; }
+
+    .cell-time { width: 175px; color: #94a3b8; white-space: nowrap; }
+    .cell-level { width: 95px; white-space: nowrap; }
+    .cell-service { width: 160px; white-space: nowrap; }
     .cell-msg {
       word-break: break-word;
       color: #e2e8f0;
-      line-height: 1.4;
+      line-height: 1.45;
     }
 
+    /* Badges & Pills */
     .badge {
       display: inline-block;
-      padding: 0.1rem 0.35rem;
+      padding: 0.08rem 0.35rem;
       border-radius: 3px;
-      font-size: 0.68rem;
+      font-size: 0.66rem;
       font-weight: 700;
       text-align: center;
     }
-    .badge-INFO { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
-    .badge-WARN { background: rgba(217, 119, 6, 0.2); color: #fbbf24; border: 1px solid rgba(217, 119, 6, 0.4); }
-    .badge-ERROR, .badge-FATAL { background: rgba(220, 38, 38, 0.2); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.4); }
-    .badge-DEBUG { background: rgba(124, 58, 237, 0.2); color: #a78bfa; border: 1px solid rgba(124, 58, 237, 0.4); }
+    .badge-INFO { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); }
+    .badge-WARN { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35); }
+    .badge-ERROR, .badge-FATAL { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+    .badge-DEBUG { background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); }
 
     .service-pill {
       background: #1e293b;
       color: #cbd5e1;
-      padding: 0.1rem 0.35rem;
+      padding: 0.08rem 0.35rem;
       border-radius: 3px;
       border: 1px solid #334155;
     }
@@ -425,7 +620,7 @@
       padding: 0.08rem 0.4rem;
       border-radius: 4px;
       font-family: var(--mono);
-      font-size: 0.7rem;
+      font-size: 0.68rem;
       cursor: pointer;
       transition: all 0.15s ease;
       margin-left: 0.35rem;
@@ -444,15 +639,15 @@
       padding: 0.08rem 0.35rem;
       border-radius: 4px;
       font-family: var(--mono);
-      font-size: 0.68rem;
-      font-weight: 600;
-      margin-left: 0.35rem;
+      font-size: 0.66rem;
+      font-weight: 700;
+      margin-left: 0.3rem;
     }
 
     .details-row td {
-      background: #0d131f;
+      background: #090e17;
       padding: 0.75rem 1rem;
-      border-bottom: 2px solid #23304a;
+      border-bottom: 2px solid #1e293b;
     }
     .details-box {
       display: flex;
@@ -465,9 +660,9 @@
       gap: 0.5rem;
     }
     pre {
-      background: #070a12;
-      border: 1px solid #1f293d;
-      border-radius: 4px;
+      background: #05080e;
+      border: 1px solid #1e293b;
+      border-radius: 5px;
       padding: 0.75rem;
       overflow-x: auto;
       font-family: var(--mono);
@@ -475,13 +670,13 @@
       color: #93c5fd;
     }
 
-    /* Modals */
+    /* Modals & Overlays */
     .modal-overlay {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.75);
-      backdrop-filter: blur(3px);
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(4px);
       z-index: 200;
       align-items: center;
       justify-content: center;
@@ -489,19 +684,19 @@
     }
     .modal-overlay.active { display: flex; }
     .modal-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 8px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
       width: 100%;
-      max-width: 820px;
+      max-width: 860px;
       max-height: 85vh;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      box-shadow: 0 16px 36px rgba(0,0,0,0.6);
     }
     .modal-header {
       padding: 0.85rem 1.25rem;
-      border-bottom: 1px solid var(--card-border);
+      border-bottom: 1px solid #1e293b;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -518,50 +713,67 @@
       border: none;
       color: var(--text-muted);
       cursor: pointer;
-      font-size: 1.2rem;
+      font-size: 1.3rem;
+      padding: 0.2rem;
     }
+    .modal-close:hover { color: #fff; }
 
     /* Waterfall Gantt Visualizer Styles */
     .waterfall-meta {
       display: flex;
-      gap: 1.25rem;
+      justify-content: space-between;
+      align-items: center;
       font-family: var(--mono);
       font-size: 0.8rem;
       color: var(--text-muted);
-      background: #0d131f;
-      padding: 0.5rem 0.75rem;
+      background: #090e17;
+      padding: 0.65rem 0.85rem;
       border-radius: 6px;
-      border: 1px solid #1f2937;
+      border: 1px solid #1e293b;
     }
     .waterfall-gantt {
       display: flex;
       flex-direction: column;
-      gap: 0.4rem;
-      max-height: 50vh;
+      gap: 0.45rem;
+      max-height: 52vh;
       overflow-y: auto;
+      padding-right: 0.35rem;
     }
     .gantt-row {
       display: grid;
-      grid-template-columns: 160px 1fr;
+      grid-template-columns: 170px 1fr;
       align-items: center;
-      gap: 0.75rem;
-      background: #131b2c;
-      padding: 0.4rem 0.6rem;
+      gap: 0.85rem;
+      background: #111a2e;
+      padding: 0.45rem 0.65rem;
       border-radius: 6px;
-      border: 1px solid #1f293d;
+      border: 1px solid #1e293b;
+      cursor: pointer;
+      transition: border-color 0.15s ease;
+    }
+    .gantt-row:hover { border-color: #3b82f6; }
+    .gantt-service-col {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
     .gantt-service-name {
-      font-weight: 600;
+      font-weight: 700;
       font-size: 0.78rem;
       color: #93c5fd;
       white-space: nowrap;
       text-overflow: ellipsis;
       overflow: hidden;
     }
+    .gantt-service-meta {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      font-family: var(--mono);
+    }
     .gantt-bar-container {
       position: relative;
-      height: 22px;
-      background: #070b14;
+      height: 24px;
+      background: #070a12;
       border-radius: 4px;
       overflow: hidden;
     }
@@ -571,199 +783,329 @@
       border-radius: 3px;
       display: flex;
       align-items: center;
-      padding: 0 0.35rem;
+      padding: 0 0.45rem;
       font-size: 0.68rem;
       font-family: var(--mono);
-      font-weight: 600;
+      font-weight: 700;
       color: #fff;
       white-space: nowrap;
       overflow: hidden;
-      cursor: default;
+      cursor: pointer;
+      transition: transform 0.1s ease;
     }
+    .gantt-bar:hover { filter: brightness(1.15); }
     .gantt-bar.INFO { background: #2563eb; }
     .gantt-bar.WARN { background: #d97706; }
     .gantt-bar.ERROR, .gantt-bar.FATAL { background: #dc2626; }
     .gantt-bar.DEBUG { background: #7c3aed; }
+    .gantt-bar.bottleneck {
+      border: 1px solid #facc15;
+      box-shadow: 0 0 8px rgba(250, 204, 21, 0.4);
+    }
     .gantt-timeline-axis {
       display: flex;
       justify-content: space-between;
       color: var(--text-muted);
       font-size: 0.68rem;
       font-family: var(--mono);
-      padding-top: 0.25rem;
+      padding-top: 0.35rem;
       border-top: 1px dashed #334155;
+    }
+    .gantt-detail-box {
+      background: #090e17;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      padding: 0.65rem 0.85rem;
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      color: #cbd5e1;
+      display: none;
+    }
+
+    /* Hotkey Table */
+    .hotkey-grid {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 0.6rem 1rem;
+      align-items: center;
+      font-size: 0.82rem;
+    }
+    .kbd {
+      background: #1e293b;
+      border: 1px solid #475569;
+      color: #f1f5f9;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-align: center;
+      display: inline-block;
     }
   </style>
 </head>
 <body>
 
+  <!-- Top Navigation Header -->
   <header>
-    <div class="brand">
-      <span>SiftLog</span>
-      <span class="badge-engine">Zstd Storage</span>
-      <span class="badge-finops">FinOps Noise Dropper</span>
+    <div class="brand-section">
+      <button class="btn btn-ghost" style="padding:0.25rem 0.45rem;" onclick="toggleSidebar()" title="Toggle Facets Sidebar (Hotkey: b)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        <span>SiftLog</span>
+      </div>
+      <span class="badge-tag badge-enterprise">Enterprise 0.4.0</span>
+      <span class="badge-tag badge-finops">FinOps Dropper</span>
     </div>
 
-    <div class="stats-bar">
-      <div class="stat-item">
-        <span class="stat-label">Ingested</span>
-        <span class="stat-val" id="stat-total-logs">0</span>
+    <!-- Live Metrics -->
+    <div class="metrics-bar">
+      <div class="metric-item">
+        <span class="metric-label">Ingested</span>
+        <span class="metric-value" id="stat-total-logs">0</span>
       </div>
-      <div class="stat-item">
-        <span class="stat-label">Disk (Compressed)</span>
-        <span class="stat-val" id="stat-disk-size">0 KB</span>
+      <div class="metric-item">
+        <span class="metric-label">Rate</span>
+        <span class="metric-value metric-rate" id="stat-rate">0 /s</span>
       </div>
-      <div class="stat-item">
-        <span class="stat-label">Ratio</span>
-        <span class="stat-val" id="stat-ratio">0.0x</span>
+      <div class="metric-item">
+        <span class="metric-label">Disk (Zstd)</span>
+        <span class="metric-value" id="stat-disk-size">0 KB</span>
       </div>
-      <div class="stat-item">
-        <span class="stat-label">Chunks</span>
-        <span class="stat-val" id="stat-chunks">0</span>
+      <div class="metric-item">
+        <span class="metric-label">Ratio</span>
+        <span class="metric-value" id="stat-ratio" style="color:#34d399;">1.0x</span>
+      </div>
+      <div class="metric-item">
+        <span class="metric-label">Segments</span>
+        <span class="metric-value" id="stat-chunks">0</span>
       </div>
     </div>
 
-    <div class="header-actions">
-      <div class="live-toggle" id="live-toggle" onclick="toggleLiveTail()">
+    <!-- Header Controls -->
+    <div class="header-controls">
+      <div class="live-toggle" id="live-toggle" onclick="toggleLiveTail()" title="Toggle Real-Time Stream (Hotkey: s)">
         <span class="pulse-dot"></span>
         <span id="live-text">Live: OFF</span>
       </div>
+      <button class="btn btn-secondary" onclick="exportResults('json')" title="Export filtered logs as JSON">Export</button>
+      <button class="btn btn-secondary" onclick="openShortcutsModal()" title="Keyboard Shortcuts (?)">?</button>
       <button class="btn btn-secondary" onclick="openIngestModal()">Ingest API</button>
     </div>
   </header>
 
-  <div class="container">
+  <!-- App Workspace -->
+  <div class="app-layout">
 
-    <!-- RCA Active Incident Banner -->
-    <div class="rca-banner" id="rca-banner">
-      <div class="rca-content">
-        <div class="rca-topline">
-          <span class="rca-badge">ROOT CAUSE DETECTED</span>
-          <span class="rca-title" id="rca-title">First fault in service</span>
+    <!-- Left Collapsible Sidebar (Facets & Quick Filters) -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">
+          <span>Quick Views</span>
+          <span style="font-size:0.6rem; color:var(--text-muted);">Presets</span>
         </div>
-        <div class="rca-details" id="rca-details">Service: ... | Error: ...</div>
-        <div class="rca-cascade" id="rca-cascade">Cascade: 0 affected services</div>
-      </div>
-      <div class="rca-actions">
-        <button class="btn" style="background:#dc2626;" id="rca-filter-btn" onclick="filterByRcaRoot()">Filter Root Service</button>
-        <button class="btn btn-secondary" onclick="dismissRca()">Dismiss</button>
-      </div>
-    </div>
-
-    <!-- Alert Spikes Banner -->
-    <div class="alert-banner" id="alert-banner">
-      <div>
-        <span id="alert-text">Alert triggered</span>
-      </div>
-      <button class="btn btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="dismissAlert()">Dismiss</button>
-    </div>
-
-    <div class="filter-card">
-      <div class="search-row">
-        <div class="search-input-wrapper">
-          <input type="text" id="query-input" placeholder='LogSQL: "exact phrase" AND/OR/NOT service:auth level:ERROR (Enter to run)' onkeydown="if(event.key==='Enter') executeSearch()">
+        <div class="preset-list">
+          <button class="preset-btn active" id="preset-all" onclick="applyPreset('all')">
+            <span>⚡ All Logs</span>
+          </button>
+          <button class="preset-btn" id="preset-errors" onclick="applyPreset('errors')">
+            <span>🚨 Errors & Fatals</span>
+          </button>
+          <button class="preset-btn" id="preset-traces" onclick="applyPreset('traces')">
+            <span>🔗 Distributed Traces</span>
+          </button>
+          <button class="preset-btn" id="preset-clean" onclick="applyPreset('clean')">
+            <span>🛡️ Exclude Noise (health)</span>
+          </button>
         </div>
-        <button class="btn" onclick="executeSearch()">Search</button>
-        <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
       </div>
 
-      <div class="filters-secondary">
-        <div class="filter-group">
-          <span class="filter-label">Service</span>
-          <select id="service-select" onchange="executeSearch()">
-            <option value="">All Services</option>
-          </select>
+      <div class="sidebar-section">
+        <div class="sidebar-title">
+          <span>Services</span>
+          <span id="services-count" style="font-size:0.68rem; color:var(--text-muted);">0</span>
+        </div>
+        <div class="facet-list" id="services-facet-list">
+          <!-- Dynamic service facets -->
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-title">
+          <span>Severity Levels</span>
+        </div>
+        <div class="facet-list">
+          <button class="facet-btn" onclick="setLevelFilter('ERROR', null)">
+            <span style="color:#f87171;">● ERROR / FATAL</span>
+            <span class="facet-count" id="count-lvl-error">0</span>
+          </button>
+          <button class="facet-btn" onclick="setLevelFilter('WARN', null)">
+            <span style="color:#fbbf24;">● WARN</span>
+            <span class="facet-count" id="count-lvl-warn">0</span>
+          </button>
+          <button class="facet-btn" onclick="setLevelFilter('INFO', null)">
+            <span style="color:#38bdf8;">● INFO</span>
+            <span class="facet-count" id="count-lvl-info">0</span>
+          </button>
+          <button class="facet-btn" onclick="setLevelFilter('DEBUG', null)">
+            <span style="color:#c084fc;">● DEBUG</span>
+            <span class="facet-count" id="count-lvl-debug">0</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <main class="main-content">
+
+      <!-- RCA Active Incident Banner -->
+      <div class="rca-banner" id="rca-banner">
+        <div class="rca-info">
+          <div class="rca-topline">
+            <span class="rca-badge">ROOT CAUSE DETECTED</span>
+            <span class="rca-title" id="rca-title">First fault in service</span>
+          </div>
+          <div class="rca-details" id="rca-details">Service: ... | Error: ...</div>
+          <div class="rca-cascade" id="rca-cascade">Cascade: 0 affected services</div>
+        </div>
+        <div class="rca-actions">
+          <button class="btn" style="background:#dc2626;" id="rca-filter-btn" onclick="filterByRcaRoot()">Filter Root Service</button>
+          <button class="btn btn-secondary" onclick="dismissRca()">Dismiss</button>
+        </div>
+      </div>
+
+      <!-- Search & Filters Toolbar -->
+      <div class="search-card">
+        <div class="search-row">
+          <div class="search-input-wrapper">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="query-input" placeholder='LogSQL: "exact phrase" AND service:auth level:ERROR NOT health (Press / to focus)' onkeydown="if(event.key==='Enter') executeSearch()">
+            <button class="clear-search-btn" onclick="clearSearch()" title="Clear search">&times;</button>
+          </div>
+          <button class="btn" onclick="executeSearch()">Search</button>
+          <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
         </div>
 
-        <div class="filter-group">
-          <span class="filter-label">Level</span>
-          <div class="level-pills">
-            <span class="level-pill active" data-lvl="" onclick="setLevelFilter('', this)">ALL</span>
-            <span class="level-pill" data-lvl="INFO" onclick="setLevelFilter('INFO', this)">INFO</span>
-            <span class="level-pill" data-lvl="WARN" onclick="setLevelFilter('WARN', this)">WARN</span>
-            <span class="level-pill" data-lvl="ERROR" onclick="setLevelFilter('ERROR', this)">ERROR</span>
-            <span class="level-pill" data-lvl="DEBUG" onclick="setLevelFilter('DEBUG', this)">DEBUG</span>
+        <div class="quick-chips">
+          <span style="font-size:0.68rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">LogSQL Shortcuts:</span>
+          <span class="quick-chip" onclick="appendQuery('level:ERROR')">level:ERROR</span>
+          <span class="quick-chip" onclick="appendQuery('NOT healthz')">NOT healthz</span>
+          <span class="quick-chip" onclick="appendQuery('\"timeout\"')">"timeout"</span>
+          <span class="quick-chip" onclick="appendQuery('service:api-gateway')">service:api-gateway</span>
+        </div>
+
+        <div class="filter-secondary-row">
+          <div class="filter-item">
+            <span class="filter-label">Service</span>
+            <select id="service-select" onchange="executeSearch()">
+              <option value="">All Services</option>
+            </select>
+          </div>
+
+          <div class="filter-item">
+            <span class="filter-label">Level</span>
+            <div class="level-pills">
+              <span class="level-pill active" data-lvl="" onclick="setLevelFilter('', this)">ALL</span>
+              <span class="level-pill" data-lvl="INFO" onclick="setLevelFilter('INFO', this)">INFO</span>
+              <span class="level-pill" data-lvl="WARN" onclick="setLevelFilter('WARN', this)">WARN</span>
+              <span class="level-pill" data-lvl="ERROR" onclick="setLevelFilter('ERROR', this)">ERROR</span>
+              <span class="level-pill" data-lvl="DEBUG" onclick="setLevelFilter('DEBUG', this)">DEBUG</span>
+            </div>
+          </div>
+
+          <div class="filter-item">
+            <span class="filter-label">Time</span>
+            <select id="time-select" onchange="executeSearch()">
+              <option value="all">All time</option>
+              <option value="15m">Last 15 minutes</option>
+              <option value="1h">Last 1 hour</option>
+              <option value="24h">Last 24 hours</option>
+              <option value="7d">Last 7 days</option>
+            </select>
+          </div>
+
+          <div class="filter-item">
+            <span class="filter-label">Limit</span>
+            <select id="limit-select" onchange="executeSearch()">
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timeline Activity Histogram Card -->
+      <div class="hist-card" id="hist-card">
+        <div class="hist-header">
+          <span class="hist-title">
+            <span>Activity Timeline</span>
+            <span id="hist-meta" style="font-family:var(--mono); color:#38bdf8; font-weight:normal;"></span>
+          </span>
+          <div class="hist-legend">
+            <span class="legend-item"><span class="legend-dot" style="background:#10b981;"></span> Normal</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#f59e0b;"></span> WARN</span>
+            <span class="legend-item"><span class="legend-dot" style="background:#ef4444;"></span> ERROR</span>
+            <button class="btn btn-ghost" id="zoom-reset-btn" style="display:none; padding:0.1rem 0.4rem; font-size:0.68rem;" onclick="resetZoom()">Reset Zoom</button>
+          </div>
+        </div>
+        <canvas id="hist-canvas"></canvas>
+        <div class="hist-tooltip" id="hist-tooltip"></div>
+      </div>
+
+      <!-- Logs Table -->
+      <div class="table-card">
+        <div class="table-toolbar">
+          <div class="table-stats">
+            <span>Matched: <strong id="matched-count" style="color:var(--text);">0</strong></span>
+            <span>Query time: <strong id="duration-text" style="color:#38bdf8;">0.00 ms</strong></span>
+            <span>Segments scanned: <strong id="scanned-chunks" style="color:var(--text);">0</strong></span>
+          </div>
+          <div class="table-options">
+            <button class="btn btn-ghost" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="toggleDensity()" title="Toggle row height">Density</button>
+            <button class="btn btn-ghost" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="toggleWrap()" title="Toggle line wrap">Wrap</button>
+            <span style="font-size:0.75rem; color:var(--text-muted);" id="status-hint">Ready</span>
           </div>
         </div>
 
-        <div class="filter-group">
-          <span class="filter-label">Time</span>
-          <select id="time-select" onchange="executeSearch()">
-            <option value="all">All time</option>
-            <option value="15m">Last 15 minutes</option>
-            <option value="1h">Last 1 hour</option>
-            <option value="24h">Last 24 hours</option>
-            <option value="7d">Last 7 days</option>
-          </select>
-        </div>
-
-        <div class="filter-group">
-          <span class="filter-label">Limit</span>
-          <select id="limit-select" onchange="executeSearch()">
-            <option value="50">50</option>
-            <option value="100" selected>100</option>
-            <option value="250">250</option>
-            <option value="500">500</option>
-          </select>
+        <div class="table-container clip-text" id="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Level</th>
+                <th>Service</th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody id="logs-tbody">
+              <tr><td colspan="4" class="empty-state" style="text-align:center; padding: 3rem; color: var(--text-muted);">No logs ingested yet or no matches found.</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
-    </div>
 
-    <!-- Timeline Activity Histogram Card -->
-    <div class="hist-card">
-      <div class="hist-header">
-        <span class="hist-title">Timeline Activity & Log Distribution</span>
-        <div class="hist-legend">
-          <span class="legend-item"><span class="legend-dot" style="background:#059669;"></span> Normal / INFO</span>
-          <span class="legend-item"><span class="legend-dot" style="background:#d97706;"></span> WARN</span>
-          <span class="legend-item"><span class="legend-dot" style="background:#dc2626;"></span> ERROR</span>
-          <span id="hist-meta" style="font-family:var(--mono);"></span>
-        </div>
-      </div>
-      <canvas id="hist-canvas"></canvas>
-    </div>
-
-    <div class="table-card">
-      <div class="table-header-bar">
-        <div class="table-metrics">
-          <span>Matched: <strong id="matched-count" style="color:var(--text);">0</strong></span>
-          <span>Query time: <strong id="duration-text" style="color:var(--text);">0.00 ms</strong></span>
-          <span>Scanned Chunks: <strong id="scanned-chunks" style="color:var(--text);">0</strong></span>
-        </div>
-        <div style="font-size:0.75rem; color:var(--text-muted);" id="status-hint">Ready</div>
-      </div>
-
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Timestamp</th>
-              <th>Level</th>
-              <th>Service</th>
-              <th>Message</th>
-            </tr>
-          </thead>
-          <tbody id="logs-tbody">
-            <tr><td colspan="4" class="empty-state" style="text-align:center; padding: 2rem; color: var(--text-muted);">No logs ingested yet or no matches found.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
+    </main>
   </div>
 
-  <!-- Trace Waterfall Visualizer Modal -->
+  <!-- Trace Waterfall Visualizer 2.0 Modal -->
   <div class="modal-overlay" id="trace-modal">
     <div class="modal-card">
       <div class="modal-header">
-        <h3>Distributed Trace Waterfall</h3>
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+          <h3 style="font-size:1rem; font-weight:700;">Distributed Trace Waterfall</h3>
+          <span class="badge-tag" id="wf-trace-badge" style="background:#1e1b4b; color:#a5b4fc; border-color:#4338ca;">trc</span>
+        </div>
         <button class="modal-close" onclick="closeTraceModal()">&times;</button>
       </div>
       <div class="modal-body">
         <div class="waterfall-meta">
-          <span>Trace ID: <strong id="wf-trace-id" style="color:#818cf8;">-</strong></span>
-          <span>Duration: <strong id="wf-duration" style="color:#34d399;">0 ms</strong></span>
-          <span>Spans: <strong id="wf-spans" style="color:var(--text);">0</strong></span>
+          <div>Trace ID: <strong id="wf-trace-id" style="color:#818cf8;">-</strong></div>
+          <div>Total Latency: <strong id="wf-duration" style="color:#34d399;">0 ms</strong></div>
+          <div>Spans: <strong id="wf-spans" style="color:var(--text);">0</strong></div>
         </div>
 
         <div class="waterfall-gantt" id="wf-gantt">
@@ -775,34 +1117,88 @@
           <span id="wf-axis-mid">50 ms</span>
           <span id="wf-axis-end">100 ms</span>
         </div>
+
+        <div class="gantt-detail-box" id="wf-detail-box">
+          <!-- Span details upon clicking row -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Context / Surrounding Logs Modal -->
+  <div class="modal-overlay" id="context-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 style="font-size:1rem; font-weight:700;">Surrounding Logs (±10s Context)</h3>
+        <button class="modal-close" onclick="closeContextModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:0.75rem; color:var(--text-muted);" id="context-meta">Showing logs around target timestamp</div>
+        <div class="table-container" style="max-height: 55vh;">
+          <table>
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Level</th>
+                <th>Service</th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody id="context-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Keyboard Shortcuts Modal -->
+  <div class="modal-overlay" id="shortcuts-modal">
+    <div class="modal-card" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3 style="font-size:1rem; font-weight:700;">Keyboard Shortcuts</h3>
+        <button class="modal-close" onclick="closeShortcutsModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="hotkey-grid">
+          <span class="kbd">/</span><span>Focus LogSQL search input</span>
+          <span class="kbd">j / ↓</span><span>Move selection to next log</span>
+          <span class="kbd">k / ↑</span><span>Move selection to previous log</span>
+          <span class="kbd">Enter</span><span>Toggle JSON details for selected log</span>
+          <span class="kbd">t</span><span>Open Waterfall Trace for selected log</span>
+          <span class="kbd">c</span><span>Copy raw JSON of selected log</span>
+          <span class="kbd">s</span><span>Toggle Real-Time Live Streaming</span>
+          <span class="kbd">b</span><span>Toggle Sidebar Facets</span>
+          <span class="kbd">Esc</span><span>Close any open modal or reset focus</span>
+          <span class="kbd">?</span><span>Show this shortcuts cheatsheet</span>
+        </div>
       </div>
     </div>
   </div>
 
   <!-- Ingest Modal -->
   <div class="modal-overlay" id="ingest-modal">
-    <div class="modal-card" style="max-width: 600px;">
+    <div class="modal-card" style="max-width: 620px;">
       <div class="modal-header">
-        <h3>Log Ingestion Endpoints</h3>
+        <h3 style="font-size:1rem; font-weight:700;">Log Ingestion & LogSQL Syntax</h3>
         <button class="modal-close" onclick="closeIngestModal()">&times;</button>
       </div>
       <div class="modal-body">
         <div>
-          <span style="font-weight:600;">Standard JSON Ingestion:</span>
+          <span style="font-weight:700; color:#38bdf8;">Standard JSON Ingestion Endpoint:</span>
           <pre>curl -X POST http://localhost:8080/api/v1/logs \
   -H "Content-Type: application/json" \
   -d '[{"service":"auth","level":"INFO","message":"User login ok","trace_id":"trc-99"}]'</pre>
         </div>
         <div>
-          <span style="font-weight:600;">Grafana Loki / Promtail / Vector Push:</span>
+          <span style="font-weight:700; color:#34d399;">Grafana Loki / Vector / Fluent Bit Sink:</span>
           <pre>curl -X POST http://localhost:8080/loki/api/v1/push \
   -H "Content-Type: application/json" \
   -d '{"streams":[{"stream":{"app":"billing"},"values":[["1700000000000000000","Charged card $49"]]}]}'</pre>
         </div>
         <div>
-          <span style="font-weight:600;">LogSQL Query syntax examples:</span>
+          <span style="font-weight:700; color:#fbbf24;">LogSQL Filter Examples:</span>
           <pre>"connection timeout" AND service:payment
-level:ERROR OR level:WARN
+level:ERROR OR level:FATAL
 NOT service:healthcheck</pre>
         </div>
       </div>
@@ -812,9 +1208,15 @@ NOT service:healthcheck</pre>
   <script>
     let activeLevel = '';
     let currentLogs = [];
+    let selectedRowIdx = -1;
     let liveTimer = null;
     let isLive = false;
     let rcaRootService = '';
+    let isCompact = false;
+    let isWrapped = false;
+    let lastIngestedCount = 0;
+    let lastStatsTime = Date.now();
+    let zoomTimeRange = null;
 
     function apiUrl(path) { return path; }
 
@@ -822,7 +1224,16 @@ NOT service:healthcheck</pre>
       activeLevel = lvl;
       document.querySelectorAll('.level-pill').forEach(p => p.classList.remove('active'));
       if (el) el.classList.add('active');
+      else {
+        const matching = document.querySelector(`.level-pill[data-lvl="${lvl}"]`);
+        if (matching) matching.classList.add('active');
+      }
       executeSearch();
+    }
+
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('collapsed');
+      setTimeout(renderHistogramCanvas, 220);
     }
 
     function toggleLiveTail() {
@@ -845,15 +1256,66 @@ NOT service:healthcheck</pre>
       }
     }
 
+    function toggleDensity() {
+      isCompact = !isCompact;
+      document.getElementById('table-container').classList.toggle('density-compact', isCompact);
+    }
+
+    function toggleWrap() {
+      isWrapped = !isWrapped;
+      const tc = document.getElementById('table-container');
+      tc.classList.toggle('wrap-text', isWrapped);
+      tc.classList.toggle('clip-text', !isWrapped);
+    }
+
+    function clearSearch() {
+      document.getElementById('query-input').value = '';
+      executeSearch();
+    }
+
+    function appendQuery(str) {
+      const inp = document.getElementById('query-input');
+      inp.value = inp.value ? `${inp.value} ${str}` : str;
+      inp.focus();
+    }
+
+    function applyPreset(preset) {
+      document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+      const btn = document.getElementById(`preset-${preset}`);
+      if (btn) btn.classList.add('active');
+
+      const qInp = document.getElementById('query-input');
+      const sSelect = document.getElementById('service-select');
+      const tSelect = document.getElementById('time-select');
+
+      if (preset === 'all') {
+        qInp.value = '';
+        sSelect.value = '';
+        setLevelFilter('', null);
+      } else if (preset === 'errors') {
+        setLevelFilter('ERROR', null);
+      } else if (preset === 'traces') {
+        qInp.value = 'trace';
+        setLevelFilter('', null);
+      } else if (preset === 'clean') {
+        qInp.value = 'NOT health';
+      }
+      executeSearch();
+    }
+
     function resetFilters() {
       document.getElementById('query-input').value = '';
       document.getElementById('service-select').value = '';
       document.getElementById('time-select').value = 'all';
       document.getElementById('limit-select').value = '100';
+      zoomTimeRange = null;
+      document.getElementById('zoom-reset-btn').style.display = 'none';
       setLevelFilter('', document.querySelector('.level-pill[data-lvl=""]'));
+      applyPreset('all');
     }
 
     function getTimeWindowMs(val) {
+      if (zoomTimeRange) return zoomTimeRange;
       const now = Date.now();
       switch(val) {
         case '15m': return { from: now - 15 * 60 * 1000, to: now };
@@ -862,6 +1324,12 @@ NOT service:healthcheck</pre>
         case '7d':  return { from: now - 7 * 24 * 60 * 60 * 1000, to: now };
         default:    return { from: 0, to: 0 };
       }
+    }
+
+    function resetZoom() {
+      zoomTimeRange = null;
+      document.getElementById('zoom-reset-btn').style.display = 'none';
+      executeSearch();
     }
 
     async function executeSearch(silent = false) {
@@ -906,7 +1374,7 @@ NOT service:healthcheck</pre>
         histBuckets = data.buckets || [];
         renderHistogramCanvas();
         const meta = document.getElementById('hist-meta');
-        if (meta) meta.innerText = `${histBuckets.length} buckets (${data.step_seconds}s step)`;
+        if (meta) meta.innerText = `(${histBuckets.length} buckets • ${data.step_seconds}s interval)`;
       } catch (e) {}
     }
 
@@ -929,7 +1397,7 @@ NOT service:healthcheck</pre>
         if (b.total > maxTotal) maxTotal = b.total;
       }
 
-      const barWidth = Math.max(2, (w / histBuckets.length) - 2);
+      const barWidth = Math.max(3, (w / histBuckets.length) - 2);
       const stepX = w / histBuckets.length;
 
       histBuckets.forEach((b, idx) => {
@@ -939,16 +1407,53 @@ NOT service:healthcheck</pre>
         const y = h - barHeight;
 
         if (b.error > 0) {
-          ctx.fillStyle = '#dc2626';
+          ctx.fillStyle = '#ef4444';
         } else if (b.warn > 0) {
-          ctx.fillStyle = '#d97706';
+          ctx.fillStyle = '#f59e0b';
         } else {
-          ctx.fillStyle = '#059669';
+          ctx.fillStyle = '#10b981';
         }
 
         ctx.fillRect(x, y, barWidth, barHeight);
       });
     }
+
+    // Interactive Histogram Tooltip & Click-to-Zoom
+    const histCanvas = document.getElementById('hist-canvas');
+    const histTooltip = document.getElementById('hist-tooltip');
+
+    histCanvas.addEventListener('mousemove', (e) => {
+      if (!histBuckets.length) return;
+      const rect = histCanvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const bucketIdx = Math.floor((mouseX / rect.width) * histBuckets.length);
+      const b = histBuckets[bucketIdx];
+      if (b) {
+        const timeStr = new Date(b.timestamp).toLocaleTimeString();
+        histTooltip.style.display = 'block';
+        histTooltip.style.left = `${Math.min(rect.width - 150, Math.max(10, mouseX))}px`;
+        histTooltip.style.top = `${e.clientY - rect.top - 40}px`;
+        histTooltip.innerHTML = `<strong>${timeStr}</strong>: ${b.total} logs (${b.error} err, ${b.warn} warn)`;
+      }
+    });
+
+    histCanvas.addEventListener('mouseleave', () => {
+      histTooltip.style.display = 'none';
+    });
+
+    histCanvas.addEventListener('click', (e) => {
+      if (!histBuckets.length) return;
+      const rect = histCanvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const bucketIdx = Math.floor((mouseX / rect.width) * histBuckets.length);
+      const b = histBuckets[bucketIdx];
+      if (b) {
+        const stepMs = (histBuckets.length > 1) ? (histBuckets[1].timestamp - histBuckets[0].timestamp) : 60000;
+        zoomTimeRange = { from: b.timestamp, to: b.timestamp + stepMs };
+        document.getElementById('zoom-reset-btn').style.display = 'inline-block';
+        executeSearch();
+      }
+    });
 
     window.addEventListener('resize', renderHistogramCanvas);
 
@@ -960,13 +1465,28 @@ NOT service:healthcheck</pre>
 
     function renderResults(data) {
       currentLogs = data.logs || [];
-      document.getElementById('matched-count').innerText = data.total_matched || currentLogs.length;
+      selectedRowIdx = -1;
+      document.getElementById('matched-count').innerText = (data.total_matched || currentLogs.length).toLocaleString();
       document.getElementById('duration-text').innerText = (data.duration_ms || 0).toFixed(2) + ' ms';
       document.getElementById('scanned-chunks').innerText = data.total_scanned_chunks || 0;
 
+      // Update sidebar level counters
+      let errCount = 0, warnCount = 0, infoCount = 0, dbgCount = 0;
+      currentLogs.forEach(l => {
+        const lvl = (l.level || '').toUpperCase();
+        if (lvl === 'ERROR' || lvl === 'FATAL') errCount++;
+        else if (lvl === 'WARN') warnCount++;
+        else if (lvl === 'INFO') infoCount++;
+        else if (lvl === 'DEBUG') dbgCount++;
+      });
+      document.getElementById('count-lvl-error').innerText = errCount;
+      document.getElementById('count-lvl-warn').innerText = warnCount;
+      document.getElementById('count-lvl-info').innerText = infoCount;
+      document.getElementById('count-lvl-debug').innerText = dbgCount;
+
       const tbody = document.getElementById('logs-tbody');
       if (currentLogs.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="empty-state" style="text-align:center; padding: 2rem; color: var(--text-muted);">No matching logs found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" class="empty-state" style="text-align:center; padding: 3rem; color: var(--text-muted);">No logs match this search criteria.</td></tr>`;
         return;
       }
 
@@ -979,16 +1499,16 @@ NOT service:healthcheck</pre>
 
         let tracePill = '';
         if (log.trace_id) {
-          tracePill = `<span class="trace-pill" title="View Distributed Waterfall Trace" onclick="openTraceWaterfall(event, '${escapeHtml(log.trace_id)}')">🔗 trace:${escapeHtml(log.trace_id)}</span>`;
+          tracePill = `<span class="trace-pill" title="View Distributed Waterfall Trace (Hotkey: t)" onclick="openTraceWaterfall(event, '${escapeHtml(log.trace_id)}')">🔗 ${escapeHtml(log.trace_id)}</span>`;
         }
 
         let dedupPill = '';
         if (log.repeat_count && log.repeat_count > 1) {
-          dedupPill = `<span class="dedup-pill" title="FinOps deduplicated identical logs">x${log.repeat_count}</span>`;
+          dedupPill = `<span class="dedup-pill" title="FinOps noise deduplication">x${log.repeat_count}</span>`;
         }
 
         html += `
-          <tr class="log-row" id="row-${idx}" onclick="toggleRowDetails(${idx})">
+          <tr class="log-row" id="row-${idx}" onclick="selectRow(${idx})">
             <td class="cell-time">${timeStr}</td>
             <td class="cell-level">
               <span class="badge badge-${lvl}">${lvl}</span>
@@ -1004,7 +1524,9 @@ NOT service:healthcheck</pre>
             <td colspan="4">
               <div class="details-box">
                 <div class="details-actions">
-                  <button class="btn btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="copyRawJson(event, ${idx})">Copy JSON</button>
+                  <button class="btn btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="openContextModal(event, ${idx})">🔍 Surrounding Logs (±10s)</button>
+                  ${log.trace_id ? `<button class="btn" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="openTraceWaterfall(event, '${escapeHtml(log.trace_id)}')">🔗 Open Trace Waterfall</button>` : ''}
+                  <button class="btn btn-secondary" style="padding:0.2rem 0.5rem; font-size:0.72rem;" onclick="copyRawJson(event, ${idx})">Copy JSON (c)</button>
                 </div>
                 <pre>${escapeHtml(formatJson(log.raw_json || log))}</pre>
               </div>
@@ -1013,6 +1535,14 @@ NOT service:healthcheck</pre>
         `;
       });
       tbody.innerHTML = html;
+    }
+
+    function selectRow(idx) {
+      selectedRowIdx = idx;
+      document.querySelectorAll('.log-row').forEach((r, i) => {
+        r.classList.toggle('selected', i === idx);
+      });
+      toggleRowDetails(idx);
     }
 
     function toggleRowDetails(idx) {
@@ -1025,10 +1555,13 @@ NOT service:healthcheck</pre>
     }
 
     function copyRawJson(e, idx) {
-      e.stopPropagation();
+      if (e) e.stopPropagation();
       const log = currentLogs[idx];
+      if (!log) return;
       const text = typeof log.raw_json === 'string' ? log.raw_json : JSON.stringify(log, null, 2);
       navigator.clipboard.writeText(text);
+      document.getElementById('status-hint').innerText = 'Copied to clipboard!';
+      setTimeout(() => { document.getElementById('status-hint').innerText = 'Ready'; }, 2000);
     }
 
     function formatJson(val) {
@@ -1063,7 +1596,17 @@ NOT service:healthcheck</pre>
         if (!resp.ok) return;
         const data = await resp.json();
 
-        document.getElementById('stat-total-logs').innerText = (data.total_logs_ingested || 0).toLocaleString();
+        const now = Date.now();
+        const total = data.total_logs_ingested || 0;
+        if (lastIngestedCount > 0 && now > lastStatsTime) {
+          const deltaSec = (now - lastStatsTime) / 1000;
+          const rate = Math.max(0, Math.round((total - lastIngestedCount) / deltaSec));
+          document.getElementById('stat-rate').innerText = `${rate} /s`;
+        }
+        lastIngestedCount = total;
+        lastStatsTime = now;
+
+        document.getElementById('stat-total-logs').innerText = total.toLocaleString();
         document.getElementById('stat-disk-size').innerText = formatBytes(data.disk_bytes_compressed || 0);
         document.getElementById('stat-ratio').innerText = data.compression_ratio || '1.0x';
         document.getElementById('stat-chunks').innerText = (data.total_chunks_on_disk || 0);
@@ -1081,16 +1624,27 @@ NOT service:healthcheck</pre>
             }
           });
           select.value = curVal;
-        }
 
-        if (data.recent_alerts && data.recent_alerts.length > 0) {
-          const lastAlert = data.recent_alerts[data.recent_alerts.length - 1];
-          const banner = document.getElementById('alert-banner');
-          document.getElementById('alert-text').innerText =
-            `Alert: ${lastAlert.service} experienced ${lastAlert.error_count} errors in 60s (${lastAlert.time || ''})`;
-          banner.classList.add('active');
+          // Render Sidebar Service Facets
+          document.getElementById('services-count').innerText = data.services.length;
+          const facetContainer = document.getElementById('services-facet-list');
+          let facetHtml = '';
+          data.services.forEach(s => {
+            const isAct = (curVal === s) ? 'active' : '';
+            facetHtml += `
+              <button class="facet-btn ${isAct}" onclick="filterServiceFacet('${escapeHtml(s)}')">
+                <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(s)}</span>
+              </button>
+            `;
+          });
+          facetContainer.innerHTML = facetHtml;
         }
       } catch (err) {}
+    }
+
+    function filterServiceFacet(svc) {
+      document.getElementById('service-select').value = svc;
+      executeSearch();
     }
 
     async function fetchRca() {
@@ -1103,7 +1657,7 @@ NOT service:healthcheck</pre>
         if (data.has_incident && data.status === 'ACTIVE' && data.root_cause) {
           rcaRootService = data.root_cause.service || '';
           document.getElementById('rca-title').innerText = `Root Cause: ${data.root_cause.service}`;
-          document.getElementById('rca-details').innerText = `Primary error: "${data.root_cause.error}"`;
+          document.getElementById('rca-details').innerText = `Primary fault: "${data.root_cause.error}"`;
           const impacted = (data.cascade && data.cascade.impacted_services) ? data.cascade.impacted_services.join(', ') : 'none';
           const totalErr = (data.cascade && data.cascade.total_errors) ? data.cascade.total_errors : 1;
           document.getElementById('rca-cascade').innerText = `Cascade: ${totalErr} errors across [${impacted}]`;
@@ -1125,28 +1679,26 @@ NOT service:healthcheck</pre>
       document.getElementById('rca-banner').classList.remove('active');
     }
 
-    function dismissAlert() {
-      document.getElementById('alert-banner').classList.remove('active');
-    }
-
-    /* Trace Waterfall Dialog */
+    /* Trace Waterfall Visualizer 2.0 */
+    let currentTraceData = null;
     async function openTraceWaterfall(e, traceId) {
       if (e) e.stopPropagation();
       document.getElementById('trace-modal').classList.add('active');
       document.getElementById('wf-trace-id').innerText = traceId;
       document.getElementById('wf-gantt').innerHTML = '<div style="color:var(--text-muted); padding:1rem;">Loading trace spans...</div>';
+      document.getElementById('wf-detail-box').style.display = 'none';
 
       try {
         const resp = await fetch(apiUrl(`/api/v1/trace?trace_id=${encodeURIComponent(traceId)}`));
         if (!resp.ok) throw new Error('Failed to load trace');
-        const data = await resp.json();
+        currentTraceData = await resp.json();
 
-        document.getElementById('wf-duration').innerText = `${data.total_duration_ms} ms`;
-        document.getElementById('wf-spans').innerText = data.spans_count;
-        document.getElementById('wf-axis-mid').innerText = `${Math.round(data.total_duration_ms / 2)} ms`;
-        document.getElementById('wf-axis-end').innerText = `${data.total_duration_ms} ms`;
+        document.getElementById('wf-duration').innerText = `${currentTraceData.total_duration_ms} ms`;
+        document.getElementById('wf-spans').innerText = currentTraceData.spans_count;
+        document.getElementById('wf-axis-mid').innerText = `${Math.round(currentTraceData.total_duration_ms / 2)} ms`;
+        document.getElementById('wf-axis-end').innerText = `${currentTraceData.total_duration_ms} ms`;
 
-        renderWaterfallGantt(data);
+        renderWaterfallGantt(currentTraceData);
       } catch (err) {
         document.getElementById('wf-gantt').innerHTML = `<div style="color:#ef4444; padding:1rem;">Error loading trace: ${err.message}</div>`;
       }
@@ -1160,22 +1712,31 @@ NOT service:healthcheck</pre>
       }
 
       const totalMs = Math.max(1, data.total_duration_ms);
-      let html = '';
+      let maxDurationSpanIdx = 0;
+      data.spans.forEach((s, idx) => {
+        if (s.duration_ms > data.spans[maxDurationSpanIdx].duration_ms) maxDurationSpanIdx = idx;
+      });
 
-      data.spans.forEach(span => {
-        const offsetPct = Math.min(95, Math.max(0, (span.offset_ms / totalMs) * 100));
-        let widthPct = Math.max(4, (span.duration_ms / totalMs) * 100);
+      let html = '';
+      data.spans.forEach((span, idx) => {
+        const offsetPct = Math.min(94, Math.max(0, (span.offset_ms / totalMs) * 100));
+        let widthPct = Math.max(5, (span.duration_ms / totalMs) * 100);
         if (offsetPct + widthPct > 100) widthPct = 100 - offsetPct;
 
         const lvl = (span.level || 'INFO').toUpperCase();
-        const dedupNote = span.repeat_count > 1 ? ` (x${span.repeat_count})` : '';
+        const isBottleneck = (idx === maxDurationSpanIdx && span.duration_ms > 10);
+        const bottleneckClass = isBottleneck ? 'bottleneck' : '';
+        const bottleneckBadge = isBottleneck ? '<span style="color:#facc15; font-size:0.65rem; margin-left:0.3rem;">⚡ Bottleneck</span>' : '';
 
         html += `
-          <div class="gantt-row">
-            <div class="gantt-service-name" title="${escapeHtml(span.service)}">${escapeHtml(span.service)}</div>
+          <div class="gantt-row" onclick="showSpanDetails(${idx})">
+            <div class="gantt-service-col">
+              <div class="gantt-service-name" title="${escapeHtml(span.service)}">${escapeHtml(span.service)}</div>
+              <div class="gantt-service-meta">${span.duration_ms}ms ${bottleneckBadge}</div>
+            </div>
             <div class="gantt-bar-container">
-              <div class="gantt-bar ${lvl}" style="left:${offsetPct.toFixed(1)}%; width:${widthPct.toFixed(1)}%;" title="${escapeHtml(span.message)}">
-                <span>+${span.offset_ms}ms (${span.duration_ms}ms) ${escapeHtml(span.message)}${dedupNote}</span>
+              <div class="gantt-bar ${lvl} ${bottleneckClass}" style="left:${offsetPct.toFixed(1)}%; width:${widthPct.toFixed(1)}%;" title="${escapeHtml(span.message)}">
+                <span>+${span.offset_ms}ms (${span.duration_ms}ms) ${escapeHtml(span.message)}</span>
               </div>
             </div>
           </div>
@@ -1185,8 +1746,70 @@ NOT service:healthcheck</pre>
       container.innerHTML = html;
     }
 
+    function showSpanDetails(idx) {
+      if (!currentTraceData || !currentTraceData.spans[idx]) return;
+      const s = currentTraceData.spans[idx];
+      const box = document.getElementById('wf-detail-box');
+      box.style.display = 'block';
+      box.innerHTML = `
+        <div style="font-weight:700; color:#38bdf8; margin-bottom:0.25rem;">Span: ${escapeHtml(s.service)} (${s.level}) - ${s.duration_ms}ms</div>
+        <div>Message: ${escapeHtml(s.message)}</div>
+        <div style="color:var(--text-muted); font-size:0.7rem; margin-top:0.25rem;">Timestamp: ${new Date(s.timestamp_ms).toISOString()} (offset: +${s.offset_ms}ms)</div>
+      `;
+    }
+
     function closeTraceModal() {
       document.getElementById('trace-modal').classList.remove('active');
+    }
+
+    /* Context / Surrounding Logs Modal */
+    async function openContextModal(e, idx) {
+      if (e) e.stopPropagation();
+      const log = currentLogs[idx];
+      if (!log) return;
+
+      document.getElementById('context-modal').classList.add('active');
+      const tbody = document.getElementById('context-tbody');
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:1.5rem; color:var(--text-muted);">Loading surrounding context...</td></tr>';
+      document.getElementById('context-meta').innerText = `Service: ${log.service} | Target Time: ${new Date(log.timestamp).toISOString()}`;
+
+      try {
+        const fromTs = log.timestamp - 10000;
+        const toTs = log.timestamp + 10000;
+        const resp = await fetch(apiUrl(`/api/v1/search?service=${encodeURIComponent(log.service)}&from=${fromTs}&to=${toTs}&limit=50`));
+        if (!resp.ok) throw new Error('Context fetch error');
+        const data = await resp.json();
+        const ctxLogs = data.logs || [];
+
+        let html = '';
+        ctxLogs.forEach(cl => {
+          const isTarget = (cl.timestamp === log.timestamp && cl.message === log.message);
+          const rowStyle = isTarget ? 'background:#1e293b; font-weight:700;' : '';
+          html += `
+            <tr style="${rowStyle}">
+              <td class="cell-time">${formatTimestamp(cl.timestamp)}</td>
+              <td class="cell-level"><span class="badge badge-${(cl.level||'INFO').toUpperCase()}">${cl.level||'INFO'}</span></td>
+              <td class="cell-service"><span class="service-pill">${escapeHtml(cl.service)}</span></td>
+              <td class="cell-msg">${escapeHtml(cl.message || cl.raw_json || '')}</td>
+            </tr>
+          `;
+        });
+        tbody.innerHTML = html || '<tr><td colspan="4" style="text-align:center;">No surrounding logs found.</td></tr>';
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="4" style="color:#ef4444; text-align:center;">Failed to load context: ${err.message}</td></tr>`;
+      }
+    }
+
+    function closeContextModal() {
+      document.getElementById('context-modal').classList.remove('active');
+    }
+
+    /* Keyboard Shortcuts Modal */
+    function openShortcutsModal() {
+      document.getElementById('shortcuts-modal').classList.add('active');
+    }
+    function closeShortcutsModal() {
+      document.getElementById('shortcuts-modal').classList.remove('active');
     }
 
     function openIngestModal() {
@@ -1196,6 +1819,87 @@ NOT service:healthcheck</pre>
       document.getElementById('ingest-modal').classList.remove('active');
     }
 
+    /* Export Functions */
+    function exportResults(format) {
+      if (!currentLogs.length) {
+        alert('No logs to export');
+        return;
+      }
+      let content = '';
+      let mime = 'application/json';
+      let ext = 'json';
+
+      if (format === 'json') {
+        content = JSON.stringify(currentLogs, null, 2);
+      } else {
+        mime = 'text/csv';
+        ext = 'csv';
+        content = 'timestamp,level,service,message,trace_id\n';
+        currentLogs.forEach(l => {
+          const msg = (l.message || '').replace(/"/g, '""');
+          content += `${l.timestamp},"${l.level}","${l.service}","${msg}","${l.trace_id || ''}"\n`;
+        });
+      }
+
+      const blob = new Blob([content], { type: mime });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `siftlog-export-${Date.now()}.${ext}`;
+      a.click();
+    }
+
+    /* Keyboard Event Listener (Vim & Linear style) */
+    window.addEventListener('keydown', (e) => {
+      // Don't trigger shortcuts when typing inside an input or textarea
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+        if (e.key === 'Escape') {
+          e.target.blur();
+        }
+        return;
+      }
+
+      if (e.key === '/') {
+        e.preventDefault();
+        document.getElementById('query-input').focus();
+      } else if (e.key === 'j' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (currentLogs.length > 0) {
+          const nextIdx = Math.min(currentLogs.length - 1, selectedRowIdx + 1);
+          selectRow(nextIdx);
+          const el = document.getElementById(`row-${nextIdx}`);
+          if (el) el.scrollIntoView({ block: 'nearest' });
+        }
+      } else if (e.key === 'k' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (currentLogs.length > 0) {
+          const prevIdx = Math.max(0, selectedRowIdx - 1);
+          selectRow(prevIdx);
+          const el = document.getElementById(`row-${prevIdx}`);
+          if (el) el.scrollIntoView({ block: 'nearest' });
+        }
+      } else if (e.key === 'Enter') {
+        if (selectedRowIdx >= 0) toggleRowDetails(selectedRowIdx);
+      } else if (e.key === 't') {
+        if (selectedRowIdx >= 0 && currentLogs[selectedRowIdx] && currentLogs[selectedRowIdx].trace_id) {
+          openTraceWaterfall(null, currentLogs[selectedRowIdx].trace_id);
+        }
+      } else if (e.key === 'c') {
+        if (selectedRowIdx >= 0) copyRawJson(null, selectedRowIdx);
+      } else if (e.key === 's') {
+        toggleLiveTail();
+      } else if (e.key === 'b') {
+        toggleSidebar();
+      } else if (e.key === '?') {
+        openShortcutsModal();
+      } else if (e.key === 'Escape') {
+        closeTraceModal();
+        closeContextModal();
+        closeShortcutsModal();
+        closeIngestModal();
+      }
+    });
+
+    // Initial load
     fetchStats();
     fetchRca();
     executeSearch();

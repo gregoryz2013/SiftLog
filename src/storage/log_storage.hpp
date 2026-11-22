@@ -2,6 +2,8 @@
 
 #include "log_entry.hpp"
 #include "chunk_meta.hpp"
+#include "search/query_parser.hpp"
+#include "storage/s3_client.hpp"
 #include <string>
 #include <vector>
 #include <unordered_set>
@@ -10,6 +12,7 @@
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <memory>
 
 struct SearchParams {
     std::string service;
@@ -28,6 +31,30 @@ struct SearchResult {
     std::vector<LogEntry> logs;
 };
 
+struct HistogramBucket {
+    int64_t timestamp = 0;
+    size_t total = 0;
+    size_t info = 0;
+    size_t warn = 0;
+    size_t error = 0;
+
+    nlohmann::json to_json() const {
+        return nlohmann::json{
+            {"timestamp", timestamp},
+            {"total", total},
+            {"info", info},
+            {"warn", warn},
+            {"error", error}
+        };
+    }
+};
+
+struct HistogramResult {
+    int64_t step_seconds = 60;
+    std::vector<HistogramBucket> buckets;
+    double duration_ms = 0.0;
+};
+
 struct StorageStats {
     size_t total_logs_ingested = 0;
     size_t total_chunks_on_disk = 0;
@@ -41,12 +68,14 @@ public:
     explicit LogStorage(std::string data_dir,
                         size_t max_batch_size = 5000,
                         std::chrono::milliseconds flush_interval = std::chrono::milliseconds(2000),
-                        int retention_days = 0);
+                        int retention_days = 0,
+                        std::shared_ptr<S3Client> s3_client = nullptr);
     ~LogStorage();
 
     void append(const LogEntry& entry);
     void append_batch(const std::vector<LogEntry>& entries);
     SearchResult search(const SearchParams& params);
+    HistogramResult get_histogram(const SearchParams& params, int64_t step_seconds = 0);
     StorageStats get_stats();
     void flush();
     void enforce_retention();
@@ -58,13 +87,14 @@ private:
     void load_existing_chunks();
 
     static std::string get_date_string(int64_t ts_ms);
-    static bool matches_filter(const LogEntry& log, const SearchParams& params);
-    static std::vector<LogEntry> search_chunk_file(const ChunkMeta& meta, const SearchParams& params);
+    static bool matches_filter(const LogEntry& log, const SearchParams& params, const LogSqlParser* parser = nullptr);
+    static std::vector<LogEntry> search_chunk_file(const ChunkMeta& meta, const SearchParams& params, const LogSqlParser* parser = nullptr);
 
     std::string data_dir_;
     size_t max_batch_size_;
     std::chrono::milliseconds flush_interval_;
     int retention_days_;
+    std::shared_ptr<S3Client> s3_client_;
 
     std::mutex queue_mutex_;
     std::condition_variable cv_;

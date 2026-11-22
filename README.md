@@ -10,6 +10,9 @@ It includes an embedded web dashboard, native support for running behind reverse
 - **Zstandard Block Compression:** Typical 15x–25x compression ratio on structured JSON logs.
 - **Sparse Chunk Indexing:** Skips non-matching chunks by timestamp and metadata without decompression.
 - **Standalone Binary:** 2.2 MB statically linked executable with embedded web dashboard.
+- **LogSQL Engine:** Advanced query parser supporting quoted exact phrases, field filters (`service:auth`, `level:ERROR`), and boolean operators (`AND`, `OR`, `NOT`, `!`).
+- **Activity Histogram:** Interactive log volume & error spike timeline in Web UI and API (`GET /api/v1/histogram`).
+- **Direct S3 Bucket Sync:** Automatic non-blocking upload of compressed chunks to S3-compatible storage (MinIO, Yandex Cloud, AWS S3).
 - **Fluent Bit & Vector Compatible:** Native support for Loki push API (`/loki/api/v1/push`) and NDJSON streaming.
 - **PII & Secrets Auto-Masking:** Automatically scrubs passwords, JWTs, API keys, payment cards, and passports before saving to disk.
 - **Log Retention Policy:** Automated background pruning of chunks older than N days (`--retention-days`).
@@ -47,6 +50,12 @@ Command-line flags and matching environment variables:
 | `--auth-user` | `SIFTLOG_AUTH_USER` | `""` | HTTP Basic Auth username (empty = public) |
 | `--auth-password` | `SIFTLOG_AUTH_PASSWORD` | `""` | HTTP Basic Auth password |
 | `--no-mask-pii` | `SIFTLOG_MASK_PII` | `enabled` | Disable automatic PII, secret, and token redaction |
+| `--s3-endpoint` | `SIFTLOG_S3_ENDPOINT` | `""` | S3 endpoint (e.g. `storage.yandexcloud.net`, `s3.amazonaws.com`) |
+| `--s3-bucket` | `SIFTLOG_S3_BUCKET` | `""` | S3 bucket name for chunk offloading |
+| `--s3-region` | `SIFTLOG_S3_REGION` | `us-east-1` | S3 region |
+| `--s3-access-key` | `SIFTLOG_S3_ACCESS_KEY` | `""` | S3 Access Key ID |
+| `--s3-secret-key` | `SIFTLOG_S3_SECRET_KEY` | `""` | S3 Secret Access Key |
+| `--s3-prefix` | `SIFTLOG_S3_PREFIX` | `siftlog` | S3 object key prefix |
 | `--license` | `SIFTLOG_LICENSE` | `""` | Enterprise license file or key token |
 | `--update-url` | `SIFTLOG_UPDATE_URL` | `""` | Enterprise update server hostname |
 | `--audit-log` | `SIFTLOG_AUDIT_LOG` | `<data-dir>/audit.log` | Enterprise compliance audit trail file |
@@ -141,10 +150,14 @@ curl -X POST http://127.0.0.1:8080/api/v1/logs \
   ]'
 ```
 
-### 2. Search (`GET /api/v1/search`)
+### 2. Search (`GET /api/v1/search`) with LogSQL
 
 Parameters:
-- `q`: Substring query (matches message or raw JSON)
+- `q`: LogSQL query expression
+  - Exact phrase in quotes: `"database connection failed"`
+  - Field filters: `service:billing`, `level:ERROR`
+  - Boolean operators: `AND`, `OR`, `NOT`, `!`
+  - Example: `service:auth-service AND "token expired" NOT "healthcheck"`
 - `service`: Filter by exact service name
 - `level`: Filter by level (`INFO`, `WARN`, `ERROR`, `DEBUG`, `FATAL`)
 - `from`: Start epoch timestamp in milliseconds
@@ -152,10 +165,22 @@ Parameters:
 - `limit`: Max records to return (1 to 1000, default 100)
 
 ```bash
-curl "http://127.0.0.1:8080/api/v1/search?service=billing&level=ERROR&q=timeout&limit=50"
+curl "http://127.0.0.1:8080/api/v1/search?q=service:billing+AND+level:ERROR+NOT+healthcheck&limit=50"
 ```
 
-### 3. Server Stats (`GET /api/v1/stats`)
+### 3. Timeline Histogram (`GET /api/v1/histogram`)
+
+Aggregates log counts and error spikes into discrete time buckets for visual analytics.
+
+Parameters:
+- `q`, `service`, `level`, `from`, `to`: Same filters as Search API
+- `step`: Bucket size in seconds (optional, default auto)
+
+```bash
+curl "http://127.0.0.1:8080/api/v1/histogram?service=billing&step=60"
+```
+
+### 4. Server Stats (`GET /api/v1/stats`)
 
 Returns storage metrics, compression ratio, active services, and recent alert events.
 

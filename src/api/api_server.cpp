@@ -342,6 +342,45 @@ void ApiServer::setup_routes() {
         res.set_content(response.dump(), "application/json");
     });
 
+    // Histogram Timeline API
+    svr_.Get("/api/v1/histogram", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Cache-Control", "no-cache");
+
+        SearchParams params;
+        if (req.has_param("q")) params.query = req.get_param_value("q");
+        if (req.has_param("service")) params.service = req.get_param_value("service");
+        if (req.has_param("level")) params.level = LogEntry::normalize_level(req.get_param_value("level"));
+        if (req.has_param("from")) {
+            try { params.from_ts = std::stoll(req.get_param_value("from")); } catch (...) {}
+        }
+        if (req.has_param("to")) {
+            try { params.to_ts = std::stoll(req.get_param_value("to")); } catch (...) {}
+        }
+
+        int64_t step_seconds = 0;
+        if (req.has_param("step")) {
+            try { step_seconds = std::stoll(req.get_param_value("step")); } catch (...) {}
+        }
+
+        HistogramResult hist = storage_->get_histogram(params, step_seconds);
+
+        nlohmann::json buckets_json = nlohmann::json::array();
+        for (const auto& b : hist.buckets) {
+            buckets_json.push_back(b.to_json());
+        }
+
+        nlohmann::json response = {
+            {"step_seconds", hist.step_seconds},
+            {"duration_ms", hist.duration_ms},
+            {"buckets", buckets_json}
+        };
+
+        res.status = 200;
+        res.set_content(response.dump(), "application/json");
+    });
+
     // Server Stats API
     svr_.Get("/api/v1/stats", [this](const httplib::Request& req, httplib::Response& res) {
         if (!check_auth(req, res)) return;

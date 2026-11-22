@@ -217,6 +217,33 @@ def main():
 
         print("PASS: PII & Secret auto-masking (passwords, JWT tokens, credit cards, passports)")
 
+        # Test LogSQL advanced syntax
+        status, res = http_get("/api/v1/search?q=%22Worker+thread+panicked%22")
+        assert status == 200
+        data = json.loads(res)
+        assert data["total_matched"] == 1, "LogSQL exact phrase search failed"
+
+        status, res = http_get("/api/v1/search?q=service:auth-service+AND+token")
+        assert status == 200
+        data = json.loads(res)
+        assert data["total_matched"] >= 1, "LogSQL AND conjunction failed"
+
+        status, res = http_get("/api/v1/search?q=level:INFO+NOT+passport")
+        assert status == 200
+        data = json.loads(res)
+        for log in data["logs"]:
+            assert "passport" not in log["message"].lower(), "LogSQL NOT failed"
+        print("PASS: LogSQL queries (exact phrase, field filters, AND, NOT)")
+
+        # Test Timeline Histogram API
+        status, res = http_get("/api/v1/histogram?step=60")
+        assert status == 200
+        hist_data = json.loads(res)
+        assert "buckets" in hist_data
+        assert len(hist_data["buckets"]) > 0
+        assert "step_seconds" in hist_data
+        print("PASS: Timeline activity histogram API (/api/v1/histogram)")
+
     finally:
         proc.terminate()
         try:

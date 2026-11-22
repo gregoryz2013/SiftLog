@@ -1,4 +1,5 @@
 #include "storage/log_storage.hpp"
+#include "storage/s3_client.hpp"
 #include "alerting/alert_manager.hpp"
 #include "api/api_server.hpp"
 #include "security/pii_masker.hpp"
@@ -44,6 +45,15 @@ int main(int argc, char* argv[]) {
     std::string update_url = get_env("SIFTLOG_UPDATE_URL", "");
     std::string audit_log_path = get_env("SIFTLOG_AUDIT_LOG", data_dir + "/audit.log");
 
+    S3Config s3_cfg;
+    s3_cfg.endpoint = get_env("SIFTLOG_S3_ENDPOINT", "");
+    s3_cfg.bucket = get_env("SIFTLOG_S3_BUCKET", "");
+    s3_cfg.region = get_env("SIFTLOG_S3_REGION", "us-east-1");
+    s3_cfg.access_key = get_env("SIFTLOG_S3_ACCESS_KEY", "");
+    s3_cfg.secret_key = get_env("SIFTLOG_S3_SECRET_KEY", "");
+    s3_cfg.prefix = get_env("SIFTLOG_S3_PREFIX", "siftlog");
+    s3_cfg.enabled = !s3_cfg.bucket.empty();
+
     try {
         std::string p_env = get_env("SIFTLOG_PORT", "");
         if (!p_env.empty()) port = std::stoi(p_env);
@@ -85,6 +95,19 @@ int main(int argc, char* argv[]) {
             update_url = argv[++i];
         } else if (arg == "--audit-log" && i + 1 < argc) {
             audit_log_path = argv[++i];
+        } else if (arg == "--s3-endpoint" && i + 1 < argc) {
+            s3_cfg.endpoint = argv[++i];
+        } else if (arg == "--s3-bucket" && i + 1 < argc) {
+            s3_cfg.bucket = argv[++i];
+            s3_cfg.enabled = true;
+        } else if (arg == "--s3-region" && i + 1 < argc) {
+            s3_cfg.region = argv[++i];
+        } else if (arg == "--s3-access-key" && i + 1 < argc) {
+            s3_cfg.access_key = argv[++i];
+        } else if (arg == "--s3-secret-key" && i + 1 < argc) {
+            s3_cfg.secret_key = argv[++i];
+        } else if (arg == "--s3-prefix" && i + 1 < argc) {
+            s3_cfg.prefix = argv[++i];
         } else if (arg == "--no-mask-pii") {
             mask_pii = false;
         } else if (arg == "--mask-pii") {
@@ -98,6 +121,12 @@ int main(int argc, char* argv[]) {
                       << "  --retention-days <days>      Auto-prune log chunks older than N days (default: 0 = disabled)\n"
                       << "  --auth-user <username>       HTTP Basic Auth username for UI & API (optional)\n"
                       << "  --auth-password <password>   HTTP Basic Auth password for UI & API (optional)\n"
+                      << "  --s3-endpoint <url>          S3 endpoint (e.g. storage.yandexcloud.net, s3.amazonaws.com)\n"
+                      << "  --s3-bucket <bucket>         S3 bucket name for log chunk storage\n"
+                      << "  --s3-region <region>         S3 bucket region (default: us-east-1)\n"
+                      << "  --s3-access-key <key>        S3 access key ID\n"
+                      << "  --s3-secret-key <key>        S3 secret access key\n"
+                      << "  --s3-prefix <prefix>         S3 object prefix (default: siftlog)\n"
                       << "  --license <file_or_token>    Enterprise license file or key token\n"
                       << "  --update-url <url>           Enterprise update server hostname\n"
                       << "  --audit-log <path>           Enterprise audit trail file path (default: <data-dir>/audit.log)\n"
@@ -120,6 +149,11 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "[siftlog] auth: " << (auth_user.empty() ? "disabled (open)" : "basic auth enabled") << std::endl;
     std::cout << "[siftlog] pii & secret masking: " << (mask_pii ? "enabled" : "disabled") << std::endl;
+    if (s3_cfg.enabled) {
+        std::cout << "[siftlog] s3 sync: enabled (bucket: " << s3_cfg.bucket << ", endpoint: " << s3_cfg.endpoint << ")" << std::endl;
+    } else {
+        std::cout << "[siftlog] s3 sync: disabled (local storage only)" << std::endl;
+    }
     std::cout << "[siftlog] error_threshold: " << error_threshold << " errors/60s" << std::endl;
     std::cout << "[siftlog] telegram alerts: " << (tg_token.empty() ? "disabled" : "enabled") << std::endl;
 
@@ -132,7 +166,8 @@ int main(int argc, char* argv[]) {
         std::cout << "[siftlog] enterprise license: " << (license.is_active() ? "ACTIVE (" + license.plan + ", customer: " + license.customer + ")" : "INACTIVE/EXPIRED") << std::endl;
     }
 
-    auto storage = std::make_shared<LogStorage>(data_dir, 5000, std::chrono::milliseconds(2000), retention_days);
+    auto s3_client = std::make_shared<S3Client>(s3_cfg);
+    auto storage = std::make_shared<LogStorage>(data_dir, 5000, std::chrono::milliseconds(2000), retention_days, s3_client);
     auto alert_manager = std::make_shared<AlertManager>(tg_token, tg_chat_id, error_threshold);
     auto pii_masker = std::make_shared<PiiMasker>(mask_pii);
     auto updater = std::make_shared<EnterpriseUpdater>("0.2.0", update_url);

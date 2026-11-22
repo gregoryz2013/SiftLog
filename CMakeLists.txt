@@ -52,6 +52,8 @@ FetchContent_MakeAvailable(nlohmann_json httplib zstd)
 set(SIFTLOG_SOURCES
     src/main.cpp
     src/storage/log_storage.cpp
+    src/storage/s3_client.cpp
+    src/search/query_parser.cpp
     src/alerting/alert_manager.cpp
     src/api/api_server.cpp
     src/security/pii_masker.cpp

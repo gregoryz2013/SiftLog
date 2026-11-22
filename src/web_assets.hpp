@@ -458,7 +458,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
     <div class="filter-card">
       <div class="search-row">
         <div class="search-input-wrapper">
-          <input type="text" id="query-input" placeholder="Search message, JSON fields, regex... (Enter to run)" onkeydown="if(event.key==='Enter') executeSearch()">
+          <input type="text" id="query-input" placeholder='LogSQL: "exact phrase" AND/OR/NOT service:auth level:ERROR (Enter to run)' onkeydown="if(event.key==='Enter') executeSearch()">
         </div>
         <button class="btn" onclick="executeSearch()">Search</button>
         <button class="btn btn-secondary" onclick="resetFilters()">Reset</button>
@@ -503,6 +503,17 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
             <option value="500">500</option>
           </select>
         </div>
+      </div>
+    </div>
+
+    <!-- Interactive Activity Histogram -->
+    <div class="histogram-card" id="histogram-card" style="background:var(--card-bg); border:1px solid var(--card-border); border-radius:6px; padding:0.55rem 0.8rem; margin-bottom:0.75rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
+        <span style="font-size:0.72rem; text-transform:uppercase; color:var(--text-muted); font-weight:600; letter-spacing:0.04em;">Log Volume & Error Timeline</span>
+        <span style="font-size:0.7rem; color:var(--text-muted); font-family:var(--mono);" id="hist-meta">Activity Histogram</span>
+      </div>
+      <div style="position:relative; width:100%; height:48px;">
+        <canvas id="hist-canvas" style="width:100%; height:48px; display:block; cursor:crosshair;"></canvas>
       </div>
     </div>
 
@@ -644,11 +655,71 @@ curl -X POST http://127.0.0.1:8080/api/v1/logs \
         if (!resp.ok) throw new Error('Query error: ' + resp.statusText);
         const data = await resp.json();
         renderResults(data);
+        fetchHistogram(params);
         if (!silent) document.getElementById('status-hint').innerText = 'Ready';
       } catch (err) {
         if (!silent) document.getElementById('status-hint').innerText = 'Error';
       }
     }
+
+    let histBuckets = [];
+    async function fetchHistogram(params) {
+      const canvas = document.getElementById('hist-canvas');
+      if (!canvas) return;
+      try {
+        const histParams = new URLSearchParams(params);
+        histParams.delete('limit');
+        const resp = await fetch(apiUrl('/api/v1/histogram') + '?' + histParams.toString());
+        if (!resp.ok) return;
+        const data = await resp.json();
+        histBuckets = data.buckets || [];
+        renderHistogramCanvas();
+        const meta = document.getElementById('hist-meta');
+        if (meta) meta.innerText = `${histBuckets.length} buckets (${data.step_seconds}s step)`;
+      } catch (e) {}
+    }
+
+    function renderHistogramCanvas() {
+      const canvas = document.getElementById('hist-canvas');
+      if (!canvas || !histBuckets.length) return;
+      const ctx = canvas.getContext('2d');
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+
+      const w = rect.width;
+      const h = rect.height;
+      ctx.clearRect(0, 0, w, h);
+
+      let maxTotal = 1;
+      for (const b of histBuckets) {
+        if (b.total > maxTotal) maxTotal = b.total;
+      }
+
+      const barWidth = Math.max(2, (w / histBuckets.length) - 2);
+      const stepX = w / histBuckets.length;
+
+      histBuckets.forEach((b, idx) => {
+        if (b.total === 0) return;
+        const x = idx * stepX;
+        const barHeight = Math.max(3, (b.total / maxTotal) * (h - 6));
+        const y = h - barHeight;
+
+        if (b.error > 0) {
+          ctx.fillStyle = '#dc2626';
+        } else if (b.warn > 0) {
+          ctx.fillStyle = '#d97706';
+        } else {
+          ctx.fillStyle = '#059669';
+        }
+
+        ctx.fillRect(x, y, barWidth, barHeight);
+      });
+    }
+
+    window.addEventListener('resize', renderHistogramCanvas);
 
     function formatTimestamp(ts) {
       if (!ts) return '';
@@ -791,4 +862,5 @@ curl -X POST http://127.0.0.1:8080/api/v1/logs \
     setInterval(fetchStats, 5000);
   </script>
 </body>
-</html>)SIFTLOG_HTML";
+</html>
+)SIFTLOG_HTML";

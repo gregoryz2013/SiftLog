@@ -14,11 +14,13 @@ namespace fs = std::filesystem;
 LogStorage::LogStorage(std::string data_dir,
                        size_t max_batch_size,
                        std::chrono::milliseconds flush_interval,
-                       int retention_days)
+                       int retention_days,
+                       std::shared_ptr<S3Client> s3_client)
     : data_dir_(std::move(data_dir)),
       max_batch_size_(max_batch_size),
       flush_interval_(flush_interval),
       retention_days_(retention_days),
+      s3_client_(std::move(s3_client)),
       last_retention_check_(std::chrono::steady_clock::now()) {
     fs::create_directories(data_dir_);
     load_existing_chunks();
@@ -266,6 +268,13 @@ void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch) {
         }
         chunks_.push_back(std::move(meta));
     }
+
+    if (s3_client_ && s3_client_->is_enabled()) {
+        std::string remote_zst = date_dir_name + "/" + chunk_id + ".zst";
+        std::string remote_meta = date_dir_name + "/" + chunk_id + ".meta";
+        s3_client_->upload_file_async(chunk_path.string(), remote_zst);
+        s3_client_->upload_file_async(meta_path.string(), remote_meta);
+    }
 }
 
 void LogStorage::load_existing_chunks() {
@@ -305,30 +314,20 @@ void LogStorage::load_existing_chunks() {
     }
 }
 
-static std::string to_lower(std::string str) {
-    std::transform(str.begin(), str.end(), str.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
-    return str;
-}
 
-bool LogStorage::matches_filter(const LogEntry& log, const SearchParams& params) {
+
+bool LogStorage::matches_filter(const LogEntry& log, const SearchParams& params, const LogSqlParser* parser) {
     if (params.from_ts > 0 && log.timestamp < params.from_ts) return false;
     if (params.to_ts > 0 && log.timestamp > params.to_ts) return false;
     if (!params.service.empty() && log.service != params.service) return false;
     if (!params.level.empty() && log.level != params.level) return false;
-    if (!params.query.empty()) {
-        std::string q = to_lower(params.query);
-        std::string msg_lower = to_lower(log.message);
-        if (msg_lower.find(q) != std::string::npos) return true;
-        std::string raw_lower = to_lower(log.raw_json);
-        if (raw_lower.find(q) != std::string::npos) return true;
-        return false;
+    if (parser) {
+        return parser->matches(log);
     }
     return true;
 }
 
-std::vector<LogEntry> LogStorage::search_chunk_file(const ChunkMeta& meta, const SearchParams& params) {
+std::vector<LogEntry> LogStorage::search_chunk_file(const ChunkMeta& meta, const SearchParams& params, const LogSqlParser* parser) {
     std::vector<LogEntry> matches;
     std::ifstream file(meta.chunk_file_path, std::ios::binary);
     if (!file) return matches;
@@ -372,7 +371,7 @@ std::vector<LogEntry> LogStorage::search_chunk_file(const ChunkMeta& meta, const
             entry.message = j.value("message", "");
             entry.raw_json = j.value("raw_json", "");
 
-            if (matches_filter(entry, params)) {
+            if (matches_filter(entry, params, parser)) {
                 matches.push_back(std::move(entry));
             }
         } catch (...) {
@@ -385,6 +384,11 @@ std::vector<LogEntry> LogStorage::search_chunk_file(const ChunkMeta& meta, const
 SearchResult LogStorage::search(const SearchParams& params) {
     auto start_time = std::chrono::steady_clock::now();
     SearchResult result;
+
+    std::unique_ptr<LogSqlParser> parser;
+    if (!params.query.empty()) {
+        parser = std::make_unique<LogSqlParser>(params.query);
+    }
 
     std::vector<ChunkMeta> candidate_chunks;
     {
@@ -402,7 +406,7 @@ SearchResult LogStorage::search(const SearchParams& params) {
 
     if (candidate_chunks.size() <= 2) {
         for (const auto& ch : candidate_chunks) {
-            auto chunk_matches = search_chunk_file(ch, params);
+            auto chunk_matches = search_chunk_file(ch, params, parser.get());
             all_matches.insert(all_matches.end(),
                                std::make_move_iterator(chunk_matches.begin()),
                                std::make_move_iterator(chunk_matches.end()));
@@ -411,8 +415,8 @@ SearchResult LogStorage::search(const SearchParams& params) {
         std::vector<std::future<std::vector<LogEntry>>> futures;
         futures.reserve(candidate_chunks.size());
         for (const auto& ch : candidate_chunks) {
-            futures.push_back(std::async(std::launch::async, [ch, params]() {
-                return search_chunk_file(ch, params);
+            futures.push_back(std::async(std::launch::async, [ch, params, p = parser.get()]() {
+                return search_chunk_file(ch, params, p);
             }));
         }
         for (auto& fut : futures) {
@@ -426,7 +430,7 @@ SearchResult LogStorage::search(const SearchParams& params) {
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
         for (const auto& entry : current_batch_) {
-            if (matches_filter(entry, params)) {
+            if (matches_filter(entry, params, parser.get())) {
                 all_matches.push_back(entry);
             }
         }
@@ -447,6 +451,78 @@ SearchResult LogStorage::search(const SearchParams& params) {
     result.duration_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
 
     return result;
+}
+
+HistogramResult LogStorage::get_histogram(const SearchParams& params, int64_t step_seconds) {
+    auto start_time = std::chrono::steady_clock::now();
+    HistogramResult res;
+
+    int64_t now_ms = LogEntry::now_ms();
+    int64_t from_ts = params.from_ts > 0 ? params.from_ts : (now_ms - 3600 * 1000LL);
+    int64_t to_ts = params.to_ts > 0 ? params.to_ts : now_ms;
+    if (to_ts <= from_ts) {
+        to_ts = from_ts + 3600 * 1000LL;
+    }
+
+    int64_t range_ms = to_ts - from_ts;
+    int64_t step_ms = step_seconds > 0 ? (step_seconds * 1000LL) : std::max<int64_t>(1000LL, range_ms / 30LL);
+    res.step_seconds = step_ms / 1000LL;
+
+    size_t num_buckets = static_cast<size_t>(range_ms / step_ms) + 1;
+    if (num_buckets > 500) num_buckets = 500;
+    res.buckets.resize(num_buckets);
+    for (size_t i = 0; i < num_buckets; ++i) {
+        res.buckets[i].timestamp = from_ts + static_cast<int64_t>(i) * step_ms;
+    }
+
+    std::unique_ptr<LogSqlParser> parser;
+    if (!params.query.empty()) {
+        parser = std::make_unique<LogSqlParser>(params.query);
+    }
+
+    auto record_entry = [&](const LogEntry& entry) {
+        if (!matches_filter(entry, params, parser.get())) return;
+        if (entry.timestamp < from_ts || entry.timestamp > to_ts) return;
+        size_t b_idx = static_cast<size_t>((entry.timestamp - from_ts) / step_ms);
+        if (b_idx < res.buckets.size()) {
+            res.buckets[b_idx].total++;
+            if (entry.level == "ERROR" || entry.level == "FATAL") {
+                res.buckets[b_idx].error++;
+            } else if (entry.level == "WARN") {
+                res.buckets[b_idx].warn++;
+            } else {
+                res.buckets[b_idx].info++;
+            }
+        }
+    };
+
+    std::vector<ChunkMeta> candidate_chunks;
+    {
+        std::lock_guard<std::mutex> lock(metadata_mutex_);
+        for (const auto& ch : chunks_) {
+            if (!ch.can_skip(from_ts, to_ts, params.service, params.level)) {
+                candidate_chunks.push_back(ch);
+            }
+        }
+    }
+
+    for (const auto& ch : candidate_chunks) {
+        auto logs = search_chunk_file(ch, params, parser.get());
+        for (const auto& log : logs) {
+            record_entry(log);
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        for (const auto& entry : current_batch_) {
+            record_entry(entry);
+        }
+    }
+
+    auto end_time = std::chrono::steady_clock::now();
+    res.duration_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+    return res;
 }
 
 StorageStats LogStorage::get_stats() {

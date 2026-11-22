@@ -54,6 +54,7 @@ set(SIFTLOG_SOURCES
     src/storage/log_storage.cpp
     src/alerting/alert_manager.cpp
     src/api/api_server.cpp
+    src/security/pii_masker.cpp
 )
 
 add_executable(siftlog ${SIFTLOG_SOURCES})

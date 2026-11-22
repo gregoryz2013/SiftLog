@@ -1,6 +1,7 @@
 #include "storage/log_storage.hpp"
 #include "alerting/alert_manager.hpp"
 #include "api/api_server.hpp"
+#include "security/pii_masker.hpp"
 #include <iostream>
 #include <string>
 #include <csignal>
@@ -31,6 +32,11 @@ int main(int argc, char* argv[]) {
     int retention_days = 0;
     std::string auth_user = get_env("SIFTLOG_AUTH_USER", "");
     std::string auth_password = get_env("SIFTLOG_AUTH_PASSWORD", "");
+    bool mask_pii = true;
+    std::string mask_env = get_env("SIFTLOG_MASK_PII", "true");
+    if (mask_env == "false" || mask_env == "0" || mask_env == "off") {
+        mask_pii = false;
+    }
 
     try {
         std::string p_env = get_env("SIFTLOG_PORT", "");
@@ -67,6 +73,10 @@ int main(int argc, char* argv[]) {
             auth_user = argv[++i];
         } else if (arg == "--auth-password" && i + 1 < argc) {
             auth_password = argv[++i];
+        } else if (arg == "--no-mask-pii") {
+            mask_pii = false;
+        } else if (arg == "--mask-pii") {
+            mask_pii = true;
         } else if (arg == "--help" || arg == "-h") {
             std::cout << "Usage: " << argv[0] << " [options]\n\n"
                       << "Options:\n"
@@ -76,6 +86,7 @@ int main(int argc, char* argv[]) {
                       << "  --retention-days <days>      Auto-prune log chunks older than N days (default: 0 = disabled)\n"
                       << "  --auth-user <username>       HTTP Basic Auth username for UI & API (optional)\n"
                       << "  --auth-password <password>   HTTP Basic Auth password for UI & API (optional)\n"
+                      << "  --no-mask-pii                Disable automatic PII & secret masking (default: enabled)\n"
                       << "  --tg-token <token>           Telegram Bot token for alerts\n"
                       << "  --tg-chat-id <id>            Telegram Chat ID for alerts\n"
                       << "  --error-threshold <n>        Error spike threshold per 60s window (default: 10)\n"
@@ -93,12 +104,14 @@ int main(int argc, char* argv[]) {
         std::cout << "[siftlog] retention: disabled (infinite)" << std::endl;
     }
     std::cout << "[siftlog] auth: " << (auth_user.empty() ? "disabled (open)" : "basic auth enabled") << std::endl;
+    std::cout << "[siftlog] pii & secret masking: " << (mask_pii ? "enabled" : "disabled") << std::endl;
     std::cout << "[siftlog] error_threshold: " << error_threshold << " errors/60s" << std::endl;
     std::cout << "[siftlog] telegram alerts: " << (tg_token.empty() ? "disabled" : "enabled") << std::endl;
 
     auto storage = std::make_shared<LogStorage>(data_dir, 5000, std::chrono::milliseconds(2000), retention_days);
     auto alert_manager = std::make_shared<AlertManager>(tg_token, tg_chat_id, error_threshold);
-    auto server = std::make_shared<ApiServer>(storage, alert_manager, host, port, auth_user, auth_password);
+    auto pii_masker = std::make_shared<PiiMasker>(mask_pii);
+    auto server = std::make_shared<ApiServer>(storage, alert_manager, host, port, auth_user, auth_password, pii_masker);
 
     g_shutdown_handler = [&]() {
         server->stop();

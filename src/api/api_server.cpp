@@ -9,13 +9,15 @@ ApiServer::ApiServer(std::shared_ptr<LogStorage> storage,
                      std::string host,
                      int port,
                      std::string auth_user,
-                     std::string auth_password)
+                     std::string auth_password,
+                     std::shared_ptr<PiiMasker> pii_masker)
     : storage_(std::move(storage)),
       alert_manager_(std::move(alert_manager)),
       host_(std::move(host)),
       port_(port),
       auth_user_(std::move(auth_user)),
       auth_password_(std::move(auth_password)),
+      pii_masker_(std::move(pii_masker)),
       start_time_(std::chrono::steady_clock::now()) {
     setup_routes();
 }
@@ -131,6 +133,7 @@ void ApiServer::setup_routes() {
                 for (const auto& item : j) {
                     if (item.is_object()) {
                         LogEntry entry = LogEntry::from_json(item);
+                        if (pii_masker_) pii_masker_->mask_entry(entry);
                         alert_manager_->record_log(entry);
                         entries.push_back(std::move(entry));
                     }
@@ -141,12 +144,14 @@ void ApiServer::setup_routes() {
                     for (const auto& item : j["logs"]) {
                         if (item.is_object()) {
                             LogEntry entry = LogEntry::from_json(item);
+                            if (pii_masker_) pii_masker_->mask_entry(entry);
                             alert_manager_->record_log(entry);
                             entries.push_back(std::move(entry));
                         }
                     }
                 } else {
                     LogEntry entry = LogEntry::from_json(j);
+                    if (pii_masker_) pii_masker_->mask_entry(entry);
                     alert_manager_->record_log(entry);
                     entries.push_back(std::move(entry));
                 }
@@ -169,6 +174,7 @@ void ApiServer::setup_routes() {
                 try {
                     nlohmann::json item = nlohmann::json::parse(line);
                     LogEntry entry = LogEntry::from_json(item);
+                    if (pii_masker_) pii_masker_->mask_entry(entry);
                     alert_manager_->record_log(entry);
                     entries.push_back(std::move(entry));
                 } catch (...) {}
@@ -255,6 +261,7 @@ void ApiServer::setup_routes() {
                                 }.dump();
                             }
 
+                            if (pii_masker_) pii_masker_->mask_entry(entry);
                             alert_manager_->record_log(entry);
                             entries.push_back(std::move(entry));
                         }
@@ -356,6 +363,7 @@ void ApiServer::setup_routes() {
             {"disk_bytes_uncompressed", stats.disk_bytes_uncompressed},
             {"compression_ratio", ratio_ss.str()},
             {"services", stats.known_services},
+            {"pii_masking", pii_masker_ ? pii_masker_->is_enabled() : false},
             {"recent_alerts", alerts_json}
         };
 
@@ -368,6 +376,9 @@ void ApiServer::start() {
     std::cout << "[server] listening on " << host_ << ":" << port_ << std::endl;
     if (!auth_user_.empty()) {
         std::cout << "[server] basic auth: enabled (user: " << auth_user_ << ")" << std::endl;
+    }
+    if (pii_masker_ && pii_masker_->is_enabled()) {
+        std::cout << "[server] pii & secret masking: enabled" << std::endl;
     }
     svr_.listen(host_, port_);
 }

@@ -11,6 +11,7 @@ It includes an embedded web dashboard, native support for running behind reverse
 - **Sparse Chunk Indexing:** Skips non-matching chunks by timestamp and metadata without decompression.
 - **Standalone Binary:** 2.2 MB statically linked executable with embedded web dashboard.
 - **Fluent Bit & Vector Compatible:** Native support for Loki push API (`/loki/api/v1/push`) and NDJSON streaming.
+- **PII & Secrets Auto-Masking:** Automatically scrubs passwords, JWTs, API keys, payment cards, and passports before saving to disk.
 - **Log Retention Policy:** Automated background pruning of chunks older than N days (`--retention-days`).
 - **Access Control:** Built-in HTTP Basic Auth for UI and API (`--auth-user`, `--auth-password`).
 - **Reverse Proxy Ready:** Transparent support for `X-Forwarded-For`, `X-Real-IP`, subpath routing, and load balancer health checks (`/health`).
@@ -45,6 +46,7 @@ Command-line flags and matching environment variables:
 | `--retention-days` | `SIFTLOG_RETENTION_DAYS` | `0` | Auto-prune chunks older than N days (`0` = disabled) |
 | `--auth-user` | `SIFTLOG_AUTH_USER` | `""` | HTTP Basic Auth username (empty = public) |
 | `--auth-password` | `SIFTLOG_AUTH_PASSWORD` | `""` | HTTP Basic Auth password |
+| `--no-mask-pii` | `SIFTLOG_MASK_PII` | `enabled` | Disable automatic PII, secret, and token redaction |
 | `--error-threshold` | `SIFTLOG_ERROR_THRESHOLD` | `10` | Error spike threshold per service within 60s window |
 | `--tg-token` | `SIFTLOG_TG_TOKEN` | `""` | Telegram Bot API token for alert dispatches |
 | `--tg-chat-id` | `SIFTLOG_TG_CHAT_ID` | `""` | Telegram chat ID |

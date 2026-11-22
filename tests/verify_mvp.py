@@ -172,6 +172,51 @@ def main():
         assert k8s_data["logs"][0]["level"] == "ERROR"  # stream: stderr -> ERROR
         print("PASS: docker/k8s log mapping (stream: stderr -> ERROR, kubernetes.container_name -> service)")
 
+        # Check PII & Secret auto-masking (passwords, JWTs, credit cards, passports)
+        pii_payload = json.dumps([
+            {
+                "service": "auth-service",
+                "level": "INFO",
+                "message": "User login failed with password: \"SuperSecretP@ss123\" and token: \"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.mock_signature\""
+            },
+            {
+                "service": "payment-service",
+                "level": "INFO",
+                "message": "Customer passport 4510 123456 paid with card 4111-2222-3333-4444 and snils 123-456-789 01"
+            }
+        ]).encode("utf-8")
+        status, _ = http_post_raw("/api/v1/logs", pii_payload)
+        assert status == 200
+
+        # Verify raw credentials and PII NEVER appear in searches
+        status, res = http_get("/api/v1/search?q=SuperSecretP@ss123")
+        assert status == 200
+        data = json.loads(res)
+        assert data["total_matched"] == 0, "Raw password leaked into storage!"
+
+        status, res = http_get("/api/v1/search?q=4111-2222-3333-4444")
+        assert status == 200
+        data = json.loads(res)
+        assert data["total_matched"] == 0, "Raw card number leaked into storage!"
+
+        # Verify masked placeholders are recorded
+        status, res = http_get("/api/v1/search?q=[MASKED_SECRET]")
+        assert status == 200
+        data = json.loads(res)
+        assert data["total_matched"] >= 1, "Masked secret placeholder not found"
+
+        status, res = http_get("/api/v1/search?q=[MASKED_CARD]")
+        assert status == 200
+        data = json.loads(res)
+        assert data["total_matched"] >= 1, "Masked card placeholder not found"
+
+        status, res = http_get("/api/v1/search?q=[MASKED_PASSPORT]")
+        assert status == 200
+        data = json.loads(res)
+        assert data["total_matched"] >= 1, "Masked passport placeholder not found"
+
+        print("PASS: PII & Secret auto-masking (passwords, JWT tokens, credit cards, passports)")
+
     finally:
         proc.terminate()
         try:

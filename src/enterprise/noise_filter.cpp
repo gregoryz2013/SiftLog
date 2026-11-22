@@ -15,34 +15,26 @@ std::vector<LogEntry> NoiseFilter::dedup_batch(std::vector<LogEntry> entries) {
     int64_t window_ms = static_cast<int64_t>(window_seconds_) * 1000LL;
 
     for (auto& entry : entries) {
-        // NEVER deduplicate errors or warnings
-        if (entry.level == "ERROR" || entry.level == "FATAL" || entry.level == "WARN") {
-            result.push_back(std::move(entry));
+        if (entry.repeat_count == 0) entry.repeat_count = 1;
+
+        // Check if an identical entry exists within recent output window
+        bool deduplicated = false;
+        for (auto it = result.rbegin(); it != result.rend(); ++it) {
+            if (it->service == entry.service &&
+                it->level == entry.level &&
+                it->message == entry.message &&
+                std::abs(entry.timestamp - it->timestamp) <= window_ms) {
+                it->repeat_count += entry.repeat_count;
+                saved_events_.fetch_add(entry.repeat_count, std::memory_order_relaxed);
+                deduplicated = true;
+                break;
+            }
+        }
+
+        if (deduplicated) {
             continue;
         }
 
-        // Check if identical to the immediately preceding entry in this output batch
-        if (!result.empty() &&
-            result.back().service == entry.service &&
-            result.back().level == entry.level &&
-            result.back().message == entry.message &&
-            std::abs(entry.timestamp - result.back().timestamp) <= window_ms) {
-            result.back().repeat_count += entry.repeat_count;
-            continue;
-        }
-
-        // Check against stateful service cache
-        auto& cached = service_recent_[entry.service];
-        if (cached.message == entry.message &&
-            (entry.timestamp - cached.last_seen_ms) <= window_ms &&
-            !result.empty()) {
-            result.back().repeat_count += entry.repeat_count;
-            cached.last_seen_ms = entry.timestamp;
-            continue;
-        }
-
-        cached.message = entry.message;
-        cached.last_seen_ms = entry.timestamp;
         result.push_back(std::move(entry));
     }
 

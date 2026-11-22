@@ -416,6 +416,7 @@ void ApiServer::setup_routes() {
             {"services", stats.known_services},
             {"pii_masking", pii_masker_ ? pii_masker_->is_enabled() : false},
             {"noise_filter_enabled", storage_->get_noise_filter() ? storage_->get_noise_filter()->is_enabled() : false},
+            {"finops_saved_events", storage_->get_noise_filter() ? storage_->get_noise_filter()->get_saved_events() : 0},
             {"enterprise_plan", license_.plan},
             {"license_active", license_.is_active()},
             {"recent_alerts", alerts_json}

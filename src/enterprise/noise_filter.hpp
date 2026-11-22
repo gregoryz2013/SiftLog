@@ -4,6 +4,7 @@
 #include <vector>
 #include <unordered_map>
 #include <mutex>
+#include <atomic>
 #include "../storage/log_entry.hpp"
 
 class NoiseFilter {
@@ -13,13 +14,16 @@ public:
     bool is_enabled() const noexcept { return enabled_; }
     void set_enabled(bool enabled) noexcept { enabled_ = enabled; }
 
-    // Deduplicates a batch of incoming logs, aggregating consecutive identical INFO/DEBUG entries
+    // Deduplicates a batch of incoming logs, aggregating consecutive identical entries
     std::vector<LogEntry> dedup_batch(std::vector<LogEntry> entries);
+
+    size_t get_saved_events() const noexcept { return saved_events_.load(std::memory_order_relaxed); }
 
 private:
     bool enabled_;
     int window_seconds_;
     std::mutex mutex_;
+    std::atomic<size_t> saved_events_{0};
     struct RecentSeen {
         std::string message;
         int64_t last_seen_ms = 0;

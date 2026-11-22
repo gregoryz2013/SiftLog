@@ -618,7 +618,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
     }
 
     .cell-time { width: 170px; color: var(--text-muted); white-space: nowrap; }
-    .cell-lvl { width: 85px; white-space: nowrap; }
+    .cell-lvl { width: 110px; white-space: nowrap; }
     .cell-svc { width: 155px; white-space: nowrap; }
     .cell-msg {
       word-break: break-word;
@@ -892,6 +892,10 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
         <span class="metric-val" id="stat-rate" style="color:var(--color-info);">0/s</span>
       </div>
       <div class="metric">
+        <span class="metric-name">FinOps Saved</span>
+        <span class="metric-val" id="stat-finops-saved" style="color:var(--color-success);" title="Total duplicate logs collapsed by FinOps noise filter">0</span>
+      </div>
+      <div class="metric">
         <span class="metric-name">Storage</span>
         <span class="metric-val" id="stat-disk-size">0 KB</span>
       </div>
@@ -935,6 +939,9 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
           </button>
           <button class="nav-item" id="view-traces" onclick="applyPreset('traces')">
             <span>Traced requests</span>
+          </button>
+          <button class="nav-item" id="view-dedup" onclick="applyPreset('dedup')">
+            <span>Deduplicated (FinOps)</span>
           </button>
           <button class="nav-item" id="view-clean" onclick="applyPreset('clean')">
             <span>Exclude noise</span>
@@ -1101,7 +1108,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
               <tr>
                 <th style="width:24px; min-width:24px; padding:0.35rem 0.2rem 0.35rem 0.45rem;"></th>
                 <th style="width:170px;">Timestamp</th>
-                <th style="width:85px;">Level</th>
+                <th style="width:110px;">Level</th>
                 <th style="width:155px;">Service</th>
                 <th>Message</th>
               </tr>
@@ -1252,6 +1259,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
 
   <script>
     let activeLevel = '';
+    let activePreset = '';
     let currentLogs = [];
     let selectedIdx = -1;
     let isLive = false;
@@ -1322,15 +1330,24 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       const sSel = document.getElementById('service-select');
 
       if (p === 'all') {
+        activePreset = '';
         qInp.value = '';
         sSel.value = '';
         setLevelFilter('', null);
       } else if (p === 'errors') {
+        activePreset = '';
         setLevelFilter('ERROR', null);
       } else if (p === 'traces') {
+        activePreset = '';
         qInp.value = 'trace';
         setLevelFilter('', null);
+      } else if (p === 'dedup') {
+        activePreset = 'dedup';
+        qInp.value = '';
+        sSel.value = '';
+        setLevelFilter('', null);
       } else if (p === 'clean') {
+        activePreset = '';
         qInp.value = 'NOT health';
       }
       executeSearch();
@@ -1654,6 +1671,9 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
 
     function renderResults(data) {
       currentLogs = data.logs || [];
+      if (activePreset === 'dedup') {
+        currentLogs = currentLogs.filter(l => l.repeat_count && l.repeat_count > 1);
+      }
       selectedIdx = -1;
       document.getElementById('matched-count').innerText = (data.total_matched || currentLogs.length).toLocaleString();
       document.getElementById('duration-text').innerText = (data.duration_ms || 0).toFixed(2) + ' ms';
@@ -1803,6 +1823,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
         lastRateTime = now;
 
         document.getElementById('stat-total-logs').innerText = total.toLocaleString();
+        document.getElementById('stat-finops-saved').innerText = (data.finops_saved_events || 0).toLocaleString();
         document.getElementById('stat-disk-size').innerText = formatBytes(data.disk_bytes_compressed || 0);
         document.getElementById('stat-ratio').innerText = data.compression_ratio || '1.0x';
         document.getElementById('stat-chunks').innerText = (data.total_chunks_on_disk || 0);

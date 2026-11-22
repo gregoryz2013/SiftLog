@@ -99,6 +99,16 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       border-color: rgba(56, 189, 248, 0.3);
       background: rgba(56, 189, 248, 0.05);
     }
+    .tag-plan {
+      font-weight: 600;
+    }
+    .tag-enterprise {
+      color: #c084fc;
+      border-color: rgba(192, 132, 252, 0.45);
+      background: rgba(192, 132, 252, 0.12);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
 
     /* System Stats Strip */
     .metrics-strip {
@@ -867,6 +877,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       </button>
       <span class="brand">SIFTLOG</span>
       <span class="tag">v0.4.0</span>
+      <span class="tag tag-plan" id="plan-badge">COMMUNITY</span>
       <span class="tag tag-accent">FinOps Engine</span>
     </div>
 
@@ -896,6 +907,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
 
     <!-- Header Actions -->
     <div class="header-right">
+      <button class="btn btn-secondary" id="audit-btn" onclick="openAuditModal()" title="Enterprise WORM Audit Ledger" style="display:none; font-family:var(--mono); font-size:0.68rem;">Audit</button>
       <button class="btn-live" id="live-btn" onclick="toggleLiveTail()" title="Toggle real-time stream (s)">Live: OFF</button>
       <button class="btn btn-secondary" onclick="exportData('json')" title="Export matching logs as JSON">JSON</button>
       <button class="btn btn-secondary" onclick="exportData('csv')" title="Export matching logs as CSV">CSV</button>
@@ -961,6 +973,19 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
             <span style="color:var(--color-debug);">DEBUG</span>
             <span class="counter" id="cnt-debug">0</span>
           </button>
+        </div>
+      </div>
+
+      <!-- Enterprise License Block -->
+      <div class="sidebar-block" id="enterprise-block" style="margin-top:auto; background:rgba(15, 23, 42, 0.4); border-top:1px solid var(--border);">
+        <div class="sidebar-heading">
+          <span>License</span>
+          <span class="badge" id="sidebar-plan-badge" style="color:var(--text-muted); border-color:var(--border);">COMMUNITY</span>
+        </div>
+        <div style="font-family:var(--mono); font-size:0.64rem; color:var(--text-muted); line-height:1.45; margin-top:0.2rem;">
+          <div id="ent-customer">Customer: Community Edition</div>
+          <div id="ent-status">Status: Unlicensed</div>
+          <div id="ent-features" style="margin-top:0.25rem; color:var(--text-dim);">RCA Engine &bull; FinOps Dedup &bull; Tracing</div>
         </div>
       </div>
     </aside>
@@ -1187,6 +1212,39 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
           <pre>curl -X POST http://localhost:8080/loki/api/v1/push \
   -H "Content-Type: application/json" \
   -d '{"streams":[{"stream":{"app":"api"},"values":[["1700000000000000000","200 OK"]]}]}'</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audit Ledger Modal -->
+  <div class="modal-overlay" id="audit-modal">
+    <div class="modal-frame" style="max-width: 820px;">
+      <div class="modal-top">
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+          <h3>Enterprise Compliance Audit Ledger (WORM)</h3>
+          <span class="badge" style="color:#c084fc; border-color:rgba(192,132,252,0.4);">SHA-256 Verified</span>
+        </div>
+        <button class="modal-close-btn" onclick="closeAuditModal()">&times;</button>
+      </div>
+      <div class="modal-content">
+        <div style="font-family:var(--mono); font-size:0.68rem; color:var(--text-muted); margin-bottom:0.75rem;">
+          Immutable append-only security log recording search queries, ingest batches, and trace views for SOC2 / ISO-27001 compliance.
+        </div>
+        <div class="table-scroll" style="max-height: 52vh;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 170px;">Timestamp</th>
+                <th style="width: 120px;">Actor / IP</th>
+                <th style="width: 95px;">Action</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="audit-tbody">
+              <tr><td colspan="4" style="text-align:center; padding:1.5rem; color:var(--text-dim);">Loading audit trail...</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -1785,6 +1843,86 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       executeSearch();
     }
 
+    async function fetchLicense() {
+      try {
+        const resp = await fetch(apiUrl('/api/v1/enterprise/license'));
+        if (!resp.ok) return;
+        const lic = await resp.json();
+        const planBadge = document.getElementById('plan-badge');
+        const sideBadge = document.getElementById('sidebar-plan-badge');
+        const custEl = document.getElementById('ent-customer');
+        const statEl = document.getElementById('ent-status');
+        const auditBtn = document.getElementById('audit-btn');
+
+        if (lic.is_active) {
+          const planName = (lic.plan || 'ENTERPRISE').toUpperCase();
+          if (planBadge) {
+            planBadge.className = 'tag tag-enterprise';
+            planBadge.innerText = planName;
+          }
+          if (sideBadge) {
+            sideBadge.className = 'badge';
+            sideBadge.style.color = '#c084fc';
+            sideBadge.style.borderColor = 'rgba(192, 132, 252, 0.4)';
+            sideBadge.innerText = 'ACTIVE';
+          }
+          if (custEl) custEl.innerText = `Client: ${lic.customer || 'Enterprise Customer'}`;
+          if (statEl) {
+            const exp = lic.expires_at_ms ? new Date(lic.expires_at_ms).toISOString().slice(0, 10) : 'Permanent';
+            statEl.innerHTML = `<span style="color:#10b981;">Valid</span> (exp: ${exp})`;
+          }
+          if (auditBtn) auditBtn.style.display = 'inline-block';
+        } else {
+          if (planBadge) {
+            planBadge.className = 'tag';
+            planBadge.innerText = 'COMMUNITY';
+          }
+          if (sideBadge) {
+            sideBadge.className = 'badge';
+            sideBadge.innerText = 'COMMUNITY';
+          }
+          if (custEl) custEl.innerText = 'Edition: Community';
+          if (statEl) statEl.innerText = 'License: Inactive';
+          if (auditBtn) auditBtn.style.display = 'none';
+        }
+      } catch (e) {}
+    }
+
+    async function openAuditModal() {
+      document.getElementById('audit-modal').classList.add('active');
+      const tbody = document.getElementById('audit-tbody');
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:1.5rem; color:var(--text-dim); font-family:var(--mono);">Loading audit trail...</td></tr>';
+      try {
+        const resp = await fetch(apiUrl('/api/v1/enterprise/audit'));
+        if (!resp.ok) throw new Error('Audit API unavailable');
+        const data = await resp.json();
+        const events = data.audit_events || [];
+        if (!events.length) {
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:1.5rem; color:var(--text-dim); font-family:var(--mono);">No audit events recorded yet.</td></tr>';
+          return;
+        }
+        let html = '';
+        events.forEach(ev => {
+          const tStr = formatTime(ev.timestamp);
+          html += `
+            <tr>
+              <td class="cell-time">${tStr}</td>
+              <td style="color:#cbd5e1; font-family:var(--mono);">${escapeHtml(ev.actor || 'internal')}</td>
+              <td><span class="badge badge-INFO">${escapeHtml(ev.action || 'OP')}</span></td>
+              <td style="color:#94a3b8; font-size:0.7rem; font-family:var(--mono); word-break:break-all;">${escapeHtml(ev.details || '')}</td>
+            </tr>
+          `;
+        });
+        tbody.innerHTML = html;
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="4" style="color:var(--color-error); text-align:center; font-family:var(--mono);">${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    function closeAuditModal() {
+      document.getElementById('audit-modal').classList.remove('active');
+    }
+
     async function fetchRca() {
       try {
         const resp = await fetch(apiUrl('/api/v1/enterprise/incident/rca'));
@@ -2027,13 +2165,16 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(
         closeContextModal();
         closeShortcutsModal();
         closeIngestModal();
+        closeAuditModal();
       }
     });
 
     fetchStats();
+    fetchLicense();
     fetchRca();
     executeSearch();
     setInterval(fetchStats, 5000);
+    setInterval(fetchLicense, 10000);
     setInterval(fetchRca, 5000);
   </script>
 </body>

@@ -4,6 +4,7 @@
 #include <sstream>
 #include <iomanip>
 #include <ctime>
+#include <cstdlib>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -108,7 +109,6 @@ void AlertManager::trigger_alert(const std::string& service, size_t error_count,
 }
 
 void AlertManager::send_telegram_alert(const std::string& service, size_t count, const std::string& sample_error) {
-#if defined(_WIN32)
     std::string msg_text = "[SiftLog Alert]\n"
                            "Service: " + service + "\n"
                            "Errors: " + std::to_string(count) + " in " + std::to_string(window_seconds_) + "s\n"
@@ -121,6 +121,7 @@ void AlertManager::send_telegram_alert(const std::string& service, size_t count,
     };
     std::string body = payload.dump();
 
+#if defined(_WIN32)
     HINTERNET hSession = WinHttpOpen(L"SiftLog/1.0",
                                      WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                      WINHTTP_NO_PROXY_NAME,
@@ -158,7 +159,19 @@ void AlertManager::send_telegram_alert(const std::string& service, size_t count,
     WinHttpCloseHandle(hConnect);
     WinHttpCloseHandle(hSession);
 #else
-    std::cout << "[alert] telegram stub dispatch: service=" << service << std::endl;
+    // POSIX fallback using curl CLI
+    std::string escaped_body;
+    for (char c : body) {
+        if (c == '\'') {
+            escaped_body += "'\\''";
+        } else {
+            escaped_body += c;
+        }
+    }
+    std::string cmd = "curl -s -m 5 -X POST https://api.telegram.org/bot" + tg_token_ +
+                      "/sendMessage -H 'Content-Type: application/json' -d '" + escaped_body + "' >/dev/null 2>&1";
+    int ret = std::system(cmd.c_str());
+    (void)ret;
 #endif
 }
 

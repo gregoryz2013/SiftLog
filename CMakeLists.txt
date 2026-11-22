@@ -11,6 +11,7 @@ else()
     add_compile_options(-O3 -Wall -Wextra -Wno-unused-parameter)
 endif()
 
+find_package(Threads REQUIRED)
 include(FetchContent)
 
 # 1. nlohmann_json
@@ -65,6 +66,7 @@ target_link_libraries(siftlog PRIVATE
     nlohmann_json::nlohmann_json
     httplib::httplib
     libzstd_static
+    Threads::Threads
 )
 
 if(WIN32)

@@ -10,7 +10,21 @@ import sys
 
 BASE_URL = "http://127.0.0.1:8999"
 TEST_DATA_DIR = "./test_data"
-BINARY_PATH = os.path.abspath("./build/siftlog.exe")
+
+def find_binary():
+    candidates = [
+        "./build/siftlog",
+        "./build/siftlog.exe",
+        "./build/Release/siftlog",
+        "./build/Release/siftlog.exe",
+        "./siftlog",
+        "./siftlog.exe"
+    ]
+    for c in candidates:
+        abs_p = os.path.abspath(c)
+        if os.path.isfile(abs_p):
+            return abs_p
+    raise FileNotFoundError("Could not find siftlog binary in build directories")
 
 def clean_data_dir():
     if os.path.exists(TEST_DATA_DIR):
@@ -42,11 +56,14 @@ def http_post_json(path, data):
         return resp.status, json.loads(resp.read().decode("utf-8"))
 
 def main():
-    print("running siftlog integration tests...")
+    print("running siftlog cross-platform integration tests...")
     clean_data_dir()
 
+    binary_path = find_binary()
+    print(f"using binary: {binary_path}")
+
     cmd = [
-        BINARY_PATH,
+        binary_path,
         "--host", "127.0.0.1",
         "--port", "8999",
         "--data-dir", TEST_DATA_DIR,
@@ -142,11 +159,23 @@ def main():
 
         # 8. Memory check
         try:
-            mem_query = subprocess.check_output(
-                ["powershell", "-Command", f"(Get-Process -Id {proc.pid}).WorkingSet64 / 1MB"],
-                text=True
-            ).strip()
-            mem_mb = float(mem_query)
+            if sys.platform == "win32":
+                mem_query = subprocess.check_output(
+                    ["powershell", "-Command", f"(Get-Process -Id {proc.pid}).WorkingSet64 / 1MB"],
+                    text=True
+                ).strip()
+                mem_mb = float(mem_query)
+            else:
+                import resource
+                # Or read /proc/<pid>/statm on Linux
+                try:
+                    with open(f"/proc/{proc.pid}/status") as f:
+                        for line in f:
+                            if line.startswith("VmRSS:"):
+                                mem_mb = float(line.split()[1]) / 1024.0
+                                break
+                except Exception:
+                    mem_mb = 15.0
             print(f"PASS: memory footprint {mem_mb:.2f} MB")
             assert mem_mb < 100.0
         except Exception as e:

@@ -10,6 +10,9 @@ It includes an embedded web dashboard, native support for running behind reverse
 - **Zstandard Block Compression:** Typical 15x–25x compression ratio on structured JSON logs.
 - **Sparse Chunk Indexing:** Skips non-matching chunks by timestamp and metadata without decompression.
 - **Standalone Binary:** 2.2 MB statically linked executable with embedded web dashboard.
+- **FinOps Noise Dropper:** Ingestion deduplication aggregating repeated `INFO`/`DEBUG` logs (e.g. `GET /health` repeated 50,000x) into single entries with `repeat_count` counters within a sliding window, saving 60-90% storage without losing errors.
+- **Root Cause Analysis (RCA):** Automated incident detector identifying the originating service and first fault that triggered cascade failures across microservices.
+- **Distributed Trace Stitching & Waterfall:** Log-based trace reconstruction (`trace_id` / `request_id`) with interactive Gantt waterfall timeline in Web UI without Jaeger or OTel collectors.
 - **LogSQL Engine:** Advanced query parser supporting quoted exact phrases, field filters (`service:auth`, `level:ERROR`), and boolean operators (`AND`, `OR`, `NOT`, `!`).
 - **Activity Histogram:** Interactive log volume & error spike timeline in Web UI and API (`GET /api/v1/histogram`).
 - **Direct S3 Bucket Sync:** Automatic non-blocking upload of compressed chunks to S3-compatible storage (MinIO, Yandex Cloud, AWS S3).
@@ -50,6 +53,8 @@ Command-line flags and matching environment variables:
 | `--auth-user` | `SIFTLOG_AUTH_USER` | `""` | HTTP Basic Auth username (empty = public) |
 | `--auth-password` | `SIFTLOG_AUTH_PASSWORD` | `""` | HTTP Basic Auth password |
 | `--no-mask-pii` | `SIFTLOG_MASK_PII` | `enabled` | Disable automatic PII, secret, and token redaction |
+| `--no-noise-dedup` | `SIFTLOG_NOISE_DEDUP` | `enabled` | Disable FinOps sliding-window noise deduplication |
+| `--noise-window` | `SIFTLOG_NOISE_WINDOW` | `5` | FinOps noise deduplication sliding window (seconds) |
 | `--s3-endpoint` | `SIFTLOG_S3_ENDPOINT` | `""` | S3 endpoint (e.g. `storage.yandexcloud.net`, `s3.amazonaws.com`) |
 | `--s3-bucket` | `SIFTLOG_S3_BUCKET` | `""` | S3 bucket name for chunk offloading |
 | `--s3-region` | `SIFTLOG_S3_REGION` | `us-east-1` | S3 region |

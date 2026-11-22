@@ -6,7 +6,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SiftLog - Log Engine</title>
+  <title>SiftLog Enterprise - Log Engine & Distributed Tracing</title>
   <style>
     :root {
       --bg: #0b0f19;
@@ -69,6 +69,15 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
       font-weight: 600;
       letter-spacing: 0.04em;
     }
+    .badge-finops {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.68rem;
+      font-weight: 600;
+    }
 
     .stats-bar {
       display: flex;
@@ -101,53 +110,109 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
     .live-toggle {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      font-size: 0.78rem;
+      gap: 0.4rem;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      padding: 0.35rem 0.75rem;
+      border-radius: 6px;
       cursor: pointer;
       user-select: none;
-      background: #0f172a;
-      border: 1px solid var(--card-border);
-      padding: 0.35rem 0.65rem;
-      border-radius: 5px;
-      transition: background 0.15s;
+      font-size: 0.8rem;
+      transition: all 0.15s ease;
+    }
+    .live-toggle:hover {
+      border-color: #374151;
     }
     .pulse-dot {
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: var(--text-muted);
+      background: #6b7280;
+      transition: background 0.2s ease;
     }
     .live-active .pulse-dot {
       background: var(--success);
       box-shadow: 0 0 6px var(--success);
     }
 
+    .btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 0.35rem 0.75rem;
+      border-radius: 6px;
+      font-weight: 500;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn-secondary {
+      background: #1f2937;
+      color: var(--text);
+      border: 1px solid #374151;
+    }
+    .btn-secondary:hover { background: #374151; }
+
     .container {
-      max-width: 1600px;
+      max-width: 1440px;
       width: 100%;
       margin: 0 auto;
       padding: 1rem 1.25rem;
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 0.75rem;
+      gap: 0.85rem;
     }
 
-    .alert-banner {
+    /* RCA Incident Banner */
+    .rca-banner {
       display: none;
-      background: rgba(220, 38, 38, 0.1);
-      border: 1px solid rgba(220, 38, 38, 0.3);
-      border-radius: 6px;
-      padding: 0.6rem 0.85rem;
-      color: #fca5a5;
-      font-size: 0.8rem;
+      background: linear-gradient(90deg, rgba(220, 38, 38, 0.25), rgba(153, 27, 27, 0.15));
+      border: 1px solid #ef4444;
+      border-radius: 8px;
+      padding: 0.85rem 1.25rem;
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+      animation: pulse-red 2s infinite ease-in-out;
     }
-    .alert-banner.active {
-      display: flex;
+    @keyframes pulse-red {
+      0%, 100% { border-color: #ef4444; }
+      50% { border-color: #f87171; }
     }
+    .rca-banner.active { display: flex; }
+    .rca-content { display: flex; flex-direction: column; gap: 0.25rem; }
+    .rca-topline { display: flex; align-items: center; gap: 0.6rem; }
+    .rca-badge {
+      background: #dc2626;
+      color: #fff;
+      font-weight: 700;
+      font-size: 0.7rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .rca-title { font-weight: 600; font-size: 0.9rem; color: #fecaca; }
+    .rca-details { color: #fca5a5; font-family: var(--mono); font-size: 0.8rem; }
+    .rca-cascade { color: #fed7aa; font-size: 0.75rem; margin-top: 0.15rem; }
+    .rca-actions { display: flex; gap: 0.5rem; align-items: center; }
+
+    /* Alert Banner */
+    .alert-banner {
+      display: none;
+      background: rgba(217, 119, 6, 0.15);
+      border: 1px solid var(--warn);
+      color: #fbbf24;
+      padding: 0.5rem 0.85rem;
+      border-radius: 6px;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.8rem;
+    }
+    .alert-banner.active { display: flex; }
 
     .filter-card {
       background: var(--card-bg);
@@ -156,250 +221,300 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
       padding: 0.85rem 1rem;
       display: flex;
       flex-direction: column;
-      gap: 0.65rem;
+      gap: 0.75rem;
     }
+
     .search-row {
       display: flex;
       gap: 0.5rem;
+      align-items: center;
     }
     .search-input-wrapper {
       position: relative;
       flex: 1;
     }
-    .search-input-wrapper input {
+    #query-input {
       width: 100%;
-      background: #0b0f19;
+      background: #0d131f;
       border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 0.45rem 0.75rem;
       color: var(--text);
       font-family: var(--mono);
-      font-size: 0.85rem;
-      padding: 0.5rem 0.75rem;
-      border-radius: 5px;
+      font-size: 0.82rem;
       outline: none;
+      transition: border-color 0.15s ease;
     }
-    .search-input-wrapper input:focus {
-      border-color: var(--accent);
-    }
-
-    .btn {
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: 5px;
-      padding: 0.5rem 0.9rem;
-      font-size: 0.8rem;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-    }
-    .btn:hover { background: var(--accent-hover); }
-    .btn-secondary {
-      background: #1e293b;
-      color: var(--text);
-    }
-    .btn-secondary:hover { background: #334155; }
+    #query-input:focus { border-color: var(--accent); }
 
     .filters-secondary {
       display: flex;
-      flex-wrap: wrap;
+      gap: 1rem;
       align-items: center;
-      gap: 0.65rem;
+      flex-wrap: wrap;
     }
     .filter-group {
       display: flex;
       align-items: center;
-      gap: 0.35rem;
+      gap: 0.4rem;
     }
     .filter-label {
       color: var(--text-muted);
       font-size: 0.72rem;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      font-weight: 600;
     }
     select {
-      background: #0b0f19;
+      background: #0d131f;
       border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 0.35rem 0.5rem;
       color: var(--text);
-      padding: 0.3rem 0.55rem;
-      border-radius: 5px;
-      font-size: 0.78rem;
+      font-size: 0.8rem;
       outline: none;
-    }
-    select:focus {
-      border-color: var(--accent);
     }
 
     .level-pills {
       display: flex;
       gap: 0.25rem;
-      background: #0b0f19;
-      padding: 2px;
-      border-radius: 5px;
-      border: 1px solid var(--card-border);
     }
     .level-pill {
       padding: 0.2rem 0.5rem;
-      font-size: 0.7rem;
+      border-radius: 4px;
+      font-size: 0.72rem;
       font-weight: 600;
-      border-radius: 3px;
       cursor: pointer;
-      user-select: none;
+      border: 1px solid #374151;
+      background: #1f2937;
       color: var(--text-muted);
+      user-select: none;
     }
     .level-pill.active {
-      background: #1e293b;
+      background: var(--accent);
+      border-color: var(--accent);
       color: #fff;
     }
-    .level-pill[data-lvl="ERROR"].active { background: #7f1d1d; color: #fca5a5; }
-    .level-pill[data-lvl="WARN"].active { background: #78350f; color: #fde68a; }
-    .level-pill[data-lvl="INFO"].active { background: #1e3a8a; color: #93c5fd; }
 
-    .results-meta {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      color: var(--text-muted);
-      font-size: 0.78rem;
-      padding: 0 0.15rem;
-    }
-
-    .logs-container {
+    /* Histogram Canvas Card */
+    .hist-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 8px;
-      overflow: hidden;
+      padding: 0.65rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .hist-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .hist-title {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .hist-legend {
+      display: flex;
+      gap: 0.75rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+    .legend-item { display: flex; align-items: center; gap: 0.3rem; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+    #hist-canvas {
+      width: 100%;
+      height: 48px;
+      display: block;
+    }
+
+    /* Logs Table */
+    .table-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
       flex: 1;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
-
-    .logs-table {
+    .table-header-bar {
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #131d2e;
+    }
+    .table-metrics {
+      display: flex;
+      gap: 1.25rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-family: var(--mono);
+    }
+    .table-container {
+      flex: 1;
+      overflow-y: auto;
+      max-height: 580px;
+    }
+    table {
       width: 100%;
       border-collapse: collapse;
-      font-family: var(--mono);
-      font-size: 0.8rem;
-    }
-    .logs-table th {
-      background: #0d1322;
       text-align: left;
-      padding: 0.45rem 0.75rem;
-      color: var(--text-muted);
-      font-weight: 600;
+    }
+    th {
+      background: #0f172a;
+      padding: 0.5rem 0.75rem;
       font-size: 0.7rem;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+      position: sticky;
+      top: 0;
+      z-index: 10;
       border-bottom: 1px solid var(--card-border);
     }
-    .logs-table td {
-      padding: 0.4rem 0.75rem;
-      border-bottom: 1px solid #182234;
+    td {
+      padding: 0.45rem 0.75rem;
+      border-bottom: 1px solid #1a2234;
+      font-family: var(--mono);
+      font-size: 0.78rem;
       vertical-align: top;
-      white-space: nowrap;
     }
-    .log-row {
-      cursor: pointer;
-    }
-    .log-row:hover {
-      background: #151e32;
-    }
-    .log-row.expanded {
-      background: #17233b;
-    }
+    tr.log-row { cursor: pointer; transition: background 0.1s ease; }
+    tr.log-row:hover { background: #172033; }
+    tr.log-row.expanded { background: #1c273e; }
 
-    .cell-time {
-      color: #64748b;
-      width: 165px;
-    }
-    .cell-level {
-      width: 75px;
-    }
-    .cell-service {
-      width: 130px;
-    }
+    .cell-time { width: 170px; color: #94a3b8; white-space: nowrap; }
+    .cell-level { width: 85px; white-space: nowrap; }
+    .cell-service { width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .cell-msg {
-      white-space: normal !important;
-      word-break: break-all;
+      word-break: break-word;
       color: #e2e8f0;
+      line-height: 1.4;
     }
 
     .badge {
       display: inline-block;
       padding: 0.1rem 0.35rem;
       border-radius: 3px;
-      font-size: 0.65rem;
+      font-size: 0.68rem;
       font-weight: 700;
-      letter-spacing: 0.04em;
+      text-align: center;
     }
-    .badge-INFO { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
-    .badge-WARN { background: rgba(217, 119, 6, 0.15); color: #f59e0b; }
-    .badge-ERROR { background: rgba(220, 38, 38, 0.15); color: #f87171; }
-    .badge-DEBUG { background: rgba(124, 58, 237, 0.15); color: #c084fc; }
-    .badge-FATAL { background: rgba(220, 38, 38, 0.3); color: #fca5a5; }
+    .badge-INFO { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
+    .badge-WARN { background: rgba(217, 119, 6, 0.2); color: #fbbf24; border: 1px solid rgba(217, 119, 6, 0.4); }
+    .badge-ERROR, .badge-FATAL { background: rgba(220, 38, 38, 0.2); color: #f87171; border: 1px solid rgba(220, 38, 38, 0.4); }
+    .badge-DEBUG { background: rgba(124, 58, 237, 0.2); color: #a78bfa; border: 1px solid rgba(124, 58, 237, 0.4); }
+
     .service-pill {
       background: #1e293b;
-      color: #94a3b8;
-      border: 1px solid #334155;
+      color: #cbd5e1;
       padding: 0.1rem 0.35rem;
       border-radius: 3px;
+      border: 1px solid #334155;
+    }
+
+    .trace-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.2rem;
+      background: rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(99, 102, 241, 0.4);
+      color: #818cf8;
+      padding: 0.08rem 0.4rem;
+      border-radius: 4px;
+      font-family: var(--mono);
       font-size: 0.7rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      margin-left: 0.35rem;
+    }
+    .trace-pill:hover {
+      background: rgba(99, 102, 241, 0.35);
+      color: #c7d2fe;
+    }
+
+    .dedup-pill {
+      display: inline-flex;
+      align-items: center;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #34d399;
+      padding: 0.08rem 0.35rem;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      font-weight: 600;
+      margin-left: 0.35rem;
     }
 
     .details-row td {
-      padding: 0 !important;
-      background: #090e17;
-      border-bottom: 2px solid var(--accent);
+      background: #0d131f;
+      padding: 0.75rem 1rem;
+      border-bottom: 2px solid #23304a;
     }
     .details-box {
-      padding: 0.75rem 0.85rem;
-      font-family: var(--mono);
-      font-size: 0.78rem;
-    }
-    .details-box pre {
-      background: #0b0f19;
-      border: 1px solid var(--card-border);
-      border-radius: 5px;
-      padding: 0.65rem;
-      overflow-x: auto;
-      color: #38bdf8;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
     }
     .details-actions {
       display: flex;
       justify-content: flex-end;
-      margin-bottom: 0.4rem;
       gap: 0.5rem;
     }
-
-    .empty-state {
-      padding: 3rem 1rem;
-      text-align: center;
-      color: var(--text-muted);
+    pre {
+      background: #070a12;
+      border: 1px solid #1f293d;
+      border-radius: 4px;
+      padding: 0.75rem;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: #93c5fd;
     }
 
+    /* Modals */
     .modal-overlay {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.65);
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(3px);
       z-index: 200;
       align-items: center;
       justify-content: center;
+      padding: 1rem;
     }
     .modal-overlay.active { display: flex; }
-    .modal-box {
+    .modal-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 8px;
-      width: 90%;
-      max-width: 580px;
-      padding: 1.25rem;
+      width: 100%;
+      max-width: 820px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
     }
     .modal-header {
+      padding: 0.85rem 1.25rem;
+      border-bottom: 1px solid var(--card-border);
       display: flex;
-      align-items: center;
       justify-content: space-between;
-      margin-bottom: 0.85rem;
+      align-items: center;
+    }
+    .modal-body {
+      padding: 1.25rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
     }
     .modal-close {
       background: transparent;
@@ -407,6 +522,79 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
       color: var(--text-muted);
       cursor: pointer;
       font-size: 1.2rem;
+    }
+
+    /* Waterfall Gantt Visualizer Styles */
+    .waterfall-meta {
+      display: flex;
+      gap: 1.25rem;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      background: #0d131f;
+      padding: 0.5rem 0.75rem;
+      border-radius: 6px;
+      border: 1px solid #1f2937;
+    }
+    .waterfall-gantt {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      max-height: 50vh;
+      overflow-y: auto;
+    }
+    .gantt-row {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      align-items: center;
+      gap: 0.75rem;
+      background: #131b2c;
+      padding: 0.4rem 0.6rem;
+      border-radius: 6px;
+      border: 1px solid #1f293d;
+    }
+    .gantt-service-name {
+      font-weight: 600;
+      font-size: 0.78rem;
+      color: #93c5fd;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+    .gantt-bar-container {
+      position: relative;
+      height: 22px;
+      background: #070b14;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .gantt-bar {
+      position: absolute;
+      height: 100%;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      padding: 0 0.35rem;
+      font-size: 0.68rem;
+      font-family: var(--mono);
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      cursor: default;
+    }
+    .gantt-bar.INFO { background: #2563eb; }
+    .gantt-bar.WARN { background: #d97706; }
+    .gantt-bar.ERROR, .gantt-bar.FATAL { background: #dc2626; }
+    .gantt-bar.DEBUG { background: #7c3aed; }
+    .gantt-timeline-axis {
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-muted);
+      font-size: 0.68rem;
+      font-family: var(--mono);
+      padding-top: 0.25rem;
+      border-top: 1px dashed #334155;
     }
   </style>
 </head>
@@ -416,6 +604,7 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
     <div class="brand">
       <span>SiftLog</span>
       <span class="badge-engine">Zstd Storage</span>
+      <span class="badge-finops">FinOps Noise Dropper</span>
     </div>
 
     <div class="stats-bar">
@@ -448,6 +637,23 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
 
   <div class="container">
 
+    <!-- RCA Active Incident Banner -->
+    <div class="rca-banner" id="rca-banner">
+      <div class="rca-content">
+        <div class="rca-topline">
+          <span class="rca-badge">ROOT CAUSE DETECTED</span>
+          <span class="rca-title" id="rca-title">First fault in service</span>
+        </div>
+        <div class="rca-details" id="rca-details">Service: ... | Error: ...</div>
+        <div class="rca-cascade" id="rca-cascade">Cascade: 0 affected services</div>
+      </div>
+      <div class="rca-actions">
+        <button class="btn" style="background:#dc2626;" id="rca-filter-btn" onclick="filterByRcaRoot()">Filter Root Service</button>
+        <button class="btn btn-secondary" onclick="dismissRca()">Dismiss</button>
+      </div>
+    </div>
+
+    <!-- Alert Spikes Banner -->
     <div class="alert-banner" id="alert-banner">
       <div>
         <span id="alert-text">Alert triggered</span>
@@ -506,92 +712,119 @@ inline constexpr std::string_view INDEX_HTML = R"SIFTLOG_HTML(<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- Interactive Activity Histogram -->
-    <div class="histogram-card" id="histogram-card" style="background:var(--card-bg); border:1px solid var(--card-border); border-radius:6px; padding:0.55rem 0.8rem; margin-bottom:0.75rem;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
-        <span style="font-size:0.72rem; text-transform:uppercase; color:var(--text-muted); font-weight:600; letter-spacing:0.04em;">Log Volume & Error Timeline</span>
-        <span style="font-size:0.7rem; color:var(--text-muted); font-family:var(--mono);" id="hist-meta">Activity Histogram</span>
+    <!-- Timeline Activity Histogram Card -->
+    <div class="hist-card">
+      <div class="hist-header">
+        <span class="hist-title">Timeline Activity & Log Distribution</span>
+        <div class="hist-legend">
+          <span class="legend-item"><span class="legend-dot" style="background:#059669;"></span> Normal / INFO</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#d97706;"></span> WARN</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#dc2626;"></span> ERROR</span>
+          <span id="hist-meta" style="font-family:var(--mono);"></span>
+        </div>
       </div>
-      <div style="position:relative; width:100%; height:48px;">
-        <canvas id="hist-canvas" style="width:100%; height:48px; display:block; cursor:crosshair;"></canvas>
-      </div>
+      <canvas id="hist-canvas"></canvas>
     </div>
 
-    <div class="results-meta">
-      <div>
-        Matched <b id="matched-count" style="color:var(--text);">0</b> logs
-        (<span id="duration-text">0 ms</span>) &bull;
-        Scanned <span id="scanned-chunks">0</span> chunks
+    <div class="table-card">
+      <div class="table-header-bar">
+        <div class="table-metrics">
+          <span>Matched: <strong id="matched-count" style="color:var(--text);">0</strong></span>
+          <span>Query time: <strong id="duration-text" style="color:var(--text);">0.00 ms</strong></span>
+          <span>Scanned Chunks: <strong id="scanned-chunks" style="color:var(--text);">0</strong></span>
+        </div>
+        <div style="font-size:0.75rem; color:var(--text-muted);" id="status-hint">Ready</div>
       </div>
-      <div id="status-hint">Ready</div>
-    </div>
 
-    <div class="logs-container">
-      <table class="logs-table">
-        <thead>
-          <tr>
-            <th class="cell-time">Timestamp</th>
-            <th class="cell-level">Level</th>
-            <th class="cell-service">Service</th>
-            <th class="cell-msg">Message</th>
-          </tr>
-        </thead>
-        <tbody id="logs-tbody">
-          <tr>
-            <td colspan="4" class="empty-state">
-              <div>No logs yet. Send logs via POST /api/v1/logs or run search.</div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Level</th>
+              <th>Service</th>
+              <th>Message</th>
+            </tr>
+          </thead>
+          <tbody id="logs-tbody">
+            <tr><td colspan="4" class="empty-state" style="text-align:center; padding: 2rem; color: var(--text-muted);">No logs ingested yet or no matches found.</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
   </div>
 
-  <div class="modal-overlay" id="ingest-modal" onclick="if(event.target===this) closeIngestModal()">
-    <div class="modal-box">
+  <!-- Trace Waterfall Visualizer Modal -->
+  <div class="modal-overlay" id="trace-modal">
+    <div class="modal-card">
       <div class="modal-header">
-        <h3 style="font-size:0.95rem;">Send Logs</h3>
+        <h3>Distributed Trace Waterfall</h3>
+        <button class="modal-close" onclick="closeTraceModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="waterfall-meta">
+          <span>Trace ID: <strong id="wf-trace-id" style="color:#818cf8;">-</strong></span>
+          <span>Duration: <strong id="wf-duration" style="color:#34d399;">0 ms</strong></span>
+          <span>Spans: <strong id="wf-spans" style="color:var(--text);">0</strong></span>
+        </div>
+
+        <div class="waterfall-gantt" id="wf-gantt">
+          <!-- Populated dynamically -->
+        </div>
+
+        <div class="gantt-timeline-axis">
+          <span>0 ms</span>
+          <span id="wf-axis-mid">50 ms</span>
+          <span id="wf-axis-end">100 ms</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ingest Modal -->
+  <div class="modal-overlay" id="ingest-modal">
+    <div class="modal-card" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3>Log Ingestion Endpoints</h3>
         <button class="modal-close" onclick="closeIngestModal()">&times;</button>
       </div>
-      <p style="color:var(--text-muted); margin-bottom:0.6rem; font-size:0.78rem;">
-        HTTP POST JSON array or single object:
-      </p>
-      <pre style="background:#0b0f19; border:1px solid var(--card-border); padding:0.65rem; border-radius:5px; font-family:var(--mono); font-size:0.75rem; overflow-x:auto; color:#a5f3fc;">
-curl -X POST http://127.0.0.1:8080/api/v1/logs \
+      <div class="modal-body">
+        <div>
+          <span style="font-weight:600;">Standard JSON Ingestion:</span>
+          <pre>curl -X POST http://localhost:8080/api/v1/logs \
   -H "Content-Type: application/json" \
-  -d '[
-    {
-      "service": "auth-service",
-      "level": "INFO",
-      "message": "User authenticated",
-      "user_id": 42
-    },
-    {
-      "service": "billing",
-      "level": "ERROR",
-      "message": "Payment provider timeout",
-      "amount": 99.00
-    }
-  ]'</pre>
+  -d '[{"service":"auth","level":"INFO","message":"User login ok","trace_id":"trc-99"}]'</pre>
+        </div>
+        <div>
+          <span style="font-weight:600;">Grafana Loki / Promtail / Vector Push:</span>
+          <pre>curl -X POST http://localhost:8080/loki/api/v1/push \
+  -H "Content-Type: application/json" \
+  -d '{"streams":[{"stream":{"app":"billing"},"values":[["1700000000000000000","Charged card $49"]]}]}'</pre>
+        </div>
+        <div>
+          <span style="font-weight:600;">LogSQL Query syntax examples:</span>
+          <pre>"connection timeout" AND service:payment
+level:ERROR OR level:WARN
+NOT service:healthcheck</pre>
+        </div>
+      </div>
     </div>
   </div>
 
   <script>
-    const BASE_PATH = window.location.pathname.replace(/\/+$/, '');
     let activeLevel = '';
-    let isLive = false;
-    let liveTimer = null;
     let currentLogs = [];
+    let liveTimer = null;
+    let isLive = false;
+    let rcaRootService = '';
 
-    function apiUrl(endpoint) {
-      return (BASE_PATH ? BASE_PATH : '') + endpoint;
-    }
+    function apiUrl(path) { return path; }
 
     function setLevelFilter(lvl, el) {
       activeLevel = lvl;
       document.querySelectorAll('.level-pill').forEach(p => p.classList.remove('active'));
-      el.classList.add('active');
+      if (el) el.classList.add('active');
       executeSearch();
     }
 
@@ -606,6 +839,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/logs \
         liveTimer = setInterval(() => {
           executeSearch(true);
           fetchStats();
+          fetchRca();
         }, 2000);
       } else {
         btn.classList.remove('live-active');
@@ -735,7 +969,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/logs \
 
       const tbody = document.getElementById('logs-tbody');
       if (currentLogs.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" class="empty-state">No matching logs found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" class="empty-state" style="text-align:center; padding: 2rem; color: var(--text-muted);">No matching logs found.</td></tr>`;
         return;
       }
 
@@ -746,11 +980,27 @@ curl -X POST http://127.0.0.1:8080/api/v1/logs \
         const service = log.service || 'unknown';
         const msg = escapeHtml(log.message || log.raw_json || '');
 
+        let tracePill = '';
+        if (log.trace_id) {
+          tracePill = `<span class="trace-pill" title="View Distributed Waterfall Trace" onclick="openTraceWaterfall(event, '${escapeHtml(log.trace_id)}')">🔗 trace:${escapeHtml(log.trace_id)}</span>`;
+        }
+
+        let dedupPill = '';
+        if (log.repeat_count && log.repeat_count > 1) {
+          dedupPill = `<span class="dedup-pill" title="FinOps deduplicated identical logs">x${log.repeat_count}</span>`;
+        }
+
         html += `
           <tr class="log-row" id="row-${idx}" onclick="toggleRowDetails(${idx})">
             <td class="cell-time">${timeStr}</td>
-            <td class="cell-level"><span class="badge badge-${lvl}">${lvl}</span></td>
-            <td class="cell-service"><span class="service-pill">${escapeHtml(service)}</span></td>
+            <td class="cell-level">
+              <span class="badge badge-${lvl}">${lvl}</span>
+              ${dedupPill}
+            </td>
+            <td class="cell-service">
+              <span class="service-pill">${escapeHtml(service)}</span>
+              ${tracePill}
+            </td>
             <td class="cell-msg">${msg}</td>
           </tr>
           <tr class="details-row" id="details-${idx}" style="display:none;">
@@ -846,8 +1096,100 @@ curl -X POST http://127.0.0.1:8080/api/v1/logs \
       } catch (err) {}
     }
 
+    async function fetchRca() {
+      try {
+        const resp = await fetch(apiUrl('/api/v1/enterprise/incident/rca'));
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const banner = document.getElementById('rca-banner');
+
+        if (data.has_incident && data.status === 'ACTIVE' && data.root_cause) {
+          rcaRootService = data.root_cause.service || '';
+          document.getElementById('rca-title').innerText = `Root Cause: ${data.root_cause.service}`;
+          document.getElementById('rca-details').innerText = `Primary error: "${data.root_cause.error}"`;
+          const impacted = (data.cascade && data.cascade.impacted_services) ? data.cascade.impacted_services.join(', ') : 'none';
+          const totalErr = (data.cascade && data.cascade.total_errors) ? data.cascade.total_errors : 1;
+          document.getElementById('rca-cascade').innerText = `Cascade: ${totalErr} errors across [${impacted}]`;
+          banner.classList.add('active');
+        } else {
+          banner.classList.remove('active');
+        }
+      } catch (e) {}
+    }
+
+    function filterByRcaRoot() {
+      if (rcaRootService) {
+        document.getElementById('service-select').value = rcaRootService;
+        executeSearch();
+      }
+    }
+
+    function dismissRca() {
+      document.getElementById('rca-banner').classList.remove('active');
+    }
+
     function dismissAlert() {
       document.getElementById('alert-banner').classList.remove('active');
+    }
+
+    /* Trace Waterfall Dialog */
+    async function openTraceWaterfall(e, traceId) {
+      if (e) e.stopPropagation();
+      document.getElementById('trace-modal').classList.add('active');
+      document.getElementById('wf-trace-id').innerText = traceId;
+      document.getElementById('wf-gantt').innerHTML = '<div style="color:var(--text-muted); padding:1rem;">Loading trace spans...</div>';
+
+      try {
+        const resp = await fetch(apiUrl(`/api/v1/trace?trace_id=${encodeURIComponent(traceId)}`));
+        if (!resp.ok) throw new Error('Failed to load trace');
+        const data = await resp.json();
+
+        document.getElementById('wf-duration').innerText = `${data.total_duration_ms} ms`;
+        document.getElementById('wf-spans').innerText = data.spans_count;
+        document.getElementById('wf-axis-mid').innerText = `${Math.round(data.total_duration_ms / 2)} ms`;
+        document.getElementById('wf-axis-end').innerText = `${data.total_duration_ms} ms`;
+
+        renderWaterfallGantt(data);
+      } catch (err) {
+        document.getElementById('wf-gantt').innerHTML = `<div style="color:#ef4444; padding:1rem;">Error loading trace: ${err.message}</div>`;
+      }
+    }
+
+    function renderWaterfallGantt(data) {
+      const container = document.getElementById('wf-gantt');
+      if (!data.spans || data.spans.length === 0) {
+        container.innerHTML = '<div style="color:var(--text-muted); padding:1rem;">No spans found for this trace.</div>';
+        return;
+      }
+
+      const totalMs = Math.max(1, data.total_duration_ms);
+      let html = '';
+
+      data.spans.forEach(span => {
+        const offsetPct = Math.min(95, Math.max(0, (span.offset_ms / totalMs) * 100));
+        let widthPct = Math.max(4, (span.duration_ms / totalMs) * 100);
+        if (offsetPct + widthPct > 100) widthPct = 100 - offsetPct;
+
+        const lvl = (span.level || 'INFO').toUpperCase();
+        const dedupNote = span.repeat_count > 1 ? ` (x${span.repeat_count})` : '';
+
+        html += `
+          <div class="gantt-row">
+            <div class="gantt-service-name" title="${escapeHtml(span.service)}">${escapeHtml(span.service)}</div>
+            <div class="gantt-bar-container">
+              <div class="gantt-bar ${lvl}" style="left:${offsetPct.toFixed(1)}%; width:${widthPct.toFixed(1)}%;" title="${escapeHtml(span.message)}">
+                <span>+${span.offset_ms}ms (${span.duration_ms}ms) ${escapeHtml(span.message)}${dedupNote}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+    }
+
+    function closeTraceModal() {
+      document.getElementById('trace-modal').classList.remove('active');
     }
 
     function openIngestModal() {
@@ -858,8 +1200,10 @@ curl -X POST http://127.0.0.1:8080/api/v1/logs \
     }
 
     fetchStats();
+    fetchRca();
     executeSearch();
     setInterval(fetchStats, 5000);
+    setInterval(fetchRca, 5000);
   </script>
 </body>
 </html>

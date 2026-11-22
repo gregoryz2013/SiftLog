@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(SiftLog VERSION 0.2.0 LANGUAGES C CXX)
+project(SiftLog VERSION 0.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -60,6 +60,8 @@ set(SIFTLOG_SOURCES
     src/enterprise/license_manager.cpp
     src/enterprise/updater.cpp
     src/enterprise/audit_ledger.cpp
+    src/enterprise/noise_filter.cpp
+    src/enterprise/rca_engine.cpp
 )
 
 add_executable(siftlog ${SIFTLOG_SOURCES})
@@ -77,4 +79,7 @@ target_link_libraries(siftlog PRIVATE
 
 if(WIN32)
     target_link_libraries(siftlog PRIVATE ws2_32 crypt32 winhttp)
+    if(MINGW)
+        target_link_options(siftlog PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
 endif()

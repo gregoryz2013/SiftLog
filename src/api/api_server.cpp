@@ -415,6 +415,7 @@ void ApiServer::setup_routes() {
             {"compression_ratio", ratio_ss.str()},
             {"services", stats.known_services},
             {"pii_masking", pii_masker_ ? pii_masker_->is_enabled() : false},
+            {"noise_filter_enabled", storage_->get_noise_filter() ? storage_->get_noise_filter()->is_enabled() : false},
             {"enterprise_plan", license_.plan},
             {"license_active", license_.is_active()},
             {"recent_alerts", alerts_json}
@@ -499,6 +500,76 @@ void ApiServer::setup_routes() {
         }
         res.status = 200;
         res.set_content(nlohmann::json{{"audit_events", arr}}.dump(), "application/json");
+    });
+
+    // Enterprise: Root Cause Analysis (RCA) Incident API
+    svr_.Get("/api/v1/enterprise/incident/rca", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Cache-Control", "no-cache");
+
+        IncidentAnalysis incident;
+        if (storage_->get_rca_engine()) {
+            incident = storage_->get_rca_engine()->get_current_incident();
+        }
+
+        res.status = 200;
+        res.set_content(incident.to_json().dump(), "application/json");
+    });
+
+    // Distributed Trace Stitching & Waterfall API
+    svr_.Get("/api/v1/trace", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Cache-Control", "no-cache");
+
+        if (!req.has_param("trace_id") || req.get_param_value("trace_id").empty()) {
+            res.status = 400;
+            res.set_content(R"({"error":"missing trace_id parameter"})", "application/json");
+            return;
+        }
+
+        std::string trace_id = req.get_param_value("trace_id");
+        std::vector<LogEntry> logs = storage_->get_trace(trace_id);
+
+        int64_t start_ms = logs.empty() ? 0 : logs.front().timestamp;
+        int64_t end_ms = logs.empty() ? 0 : logs.back().timestamp;
+        int64_t total_duration = std::max<int64_t>(1, end_ms - start_ms);
+
+        nlohmann::json spans = nlohmann::json::array();
+        for (size_t i = 0; i < logs.size(); ++i) {
+            const auto& entry = logs[i];
+            int64_t offset = entry.timestamp - start_ms;
+            int64_t dur = 1;
+            if (i + 1 < logs.size()) {
+                dur = std::max<int64_t>(1, logs[i + 1].timestamp - entry.timestamp);
+            }
+            spans.push_back({
+                {"service", entry.service},
+                {"level", entry.level},
+                {"message", entry.message},
+                {"timestamp_ms", entry.timestamp},
+                {"offset_ms", offset},
+                {"duration_ms", dur},
+                {"repeat_count", entry.repeat_count}
+            });
+        }
+
+        nlohmann::json resp = {
+            {"trace_id", trace_id},
+            {"spans_count", logs.size()},
+            {"start_time_ms", start_ms},
+            {"end_time_ms", end_ms},
+            {"total_duration_ms", total_duration},
+            {"spans", spans}
+        };
+
+        if (audit_ledger_) {
+            audit_ledger_->record_event(get_client_ip(req), "TRACE_VIEW", "trace_id=" + trace_id + " spans=" + std::to_string(logs.size()));
+        }
+
+        res.status = 200;
+        res.set_content(resp.dump(), "application/json");
     });
 }
 

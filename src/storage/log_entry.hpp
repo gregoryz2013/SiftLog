@@ -13,6 +13,8 @@ struct LogEntry {
     std::string service = "default";
     std::string message;
     std::string raw_json;
+    std::string trace_id;
+    size_t repeat_count = 1;
 
     static int64_t now_ms() noexcept {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -121,17 +123,40 @@ struct LogEntry {
             entry.message = j.dump();
         }
 
+        // 5. Trace / Request ID extraction
+        if (j.contains("trace_id") && j["trace_id"].is_string()) {
+            entry.trace_id = j["trace_id"].get<std::string>();
+        } else if (j.contains("traceId") && j["traceId"].is_string()) {
+            entry.trace_id = j["traceId"].get<std::string>();
+        } else if (j.contains("request_id") && j["request_id"].is_string()) {
+            entry.trace_id = j["request_id"].get<std::string>();
+        } else if (j.contains("requestId") && j["requestId"].is_string()) {
+            entry.trace_id = j["requestId"].get<std::string>();
+        } else if (j.contains("correlation_id") && j["correlation_id"].is_string()) {
+            entry.trace_id = j["correlation_id"].get<std::string>();
+        }
+
+        // 6. Repeat count extraction
+        if (j.contains("repeat_count") && j["repeat_count"].is_number_integer()) {
+            entry.repeat_count = j["repeat_count"].get<size_t>();
+        }
+
         entry.raw_json = j.dump();
         return entry;
     }
 
     nlohmann::json to_json() const {
-        return nlohmann::json{
+        nlohmann::json j = {
             {"timestamp", timestamp},
             {"level", level},
             {"service", service},
             {"message", message},
-            {"raw_json", raw_json}
+            {"raw_json", raw_json},
+            {"repeat_count", repeat_count}
         };
+        if (!trace_id.empty()) {
+            j["trace_id"] = trace_id;
+        }
+        return j;
     }
 };

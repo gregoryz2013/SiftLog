@@ -15,13 +15,23 @@ LogStorage::LogStorage(std::string data_dir,
                        size_t max_batch_size,
                        std::chrono::milliseconds flush_interval,
                        int retention_days,
-                       std::shared_ptr<S3Client> s3_client)
+                       std::shared_ptr<S3Client> s3_client,
+                       std::shared_ptr<NoiseFilter> noise_filter,
+                       std::shared_ptr<RcaEngine> rca_engine)
     : data_dir_(std::move(data_dir)),
       max_batch_size_(max_batch_size),
       flush_interval_(flush_interval),
       retention_days_(retention_days),
       s3_client_(std::move(s3_client)),
+      noise_filter_(std::move(noise_filter)),
+      rca_engine_(std::move(rca_engine)),
       last_retention_check_(std::chrono::steady_clock::now()) {
+    if (!noise_filter_) {
+        noise_filter_ = std::make_shared<NoiseFilter>(true, 5);
+    }
+    if (!rca_engine_) {
+        rca_engine_ = std::make_shared<RcaEngine>(60, 3);
+    }
     fs::create_directories(data_dir_);
     load_existing_chunks();
     enforce_retention();
@@ -44,30 +54,30 @@ void LogStorage::stop() {
 }
 
 void LogStorage::append(const LogEntry& entry) {
-    {
-        std::lock_guard<std::mutex> lock(queue_mutex_);
-        current_batch_.push_back(entry);
-        total_logs_ingested_.fetch_add(1, std::memory_order_relaxed);
-    }
-    {
-        std::lock_guard<std::mutex> meta_lock(metadata_mutex_);
-        known_services_.insert(entry.service);
-    }
-    if (current_batch_.size() >= max_batch_size_) {
-        cv_.notify_one();
-    }
+    append_batch({entry});
 }
 
 void LogStorage::append_batch(const std::vector<LogEntry>& entries) {
     if (entries.empty()) return;
+
+    std::vector<LogEntry> processed = entries;
+    if (noise_filter_) {
+        processed = noise_filter_->dedup_batch(std::move(processed));
+    }
+    if (rca_engine_) {
+        rca_engine_->observe(processed);
+    }
+
+    if (processed.empty()) return;
+
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
-        current_batch_.insert(current_batch_.end(), entries.begin(), entries.end());
-        total_logs_ingested_.fetch_add(entries.size(), std::memory_order_relaxed);
+        current_batch_.insert(current_batch_.end(), processed.begin(), processed.end());
+        total_logs_ingested_.fetch_add(processed.size(), std::memory_order_relaxed);
     }
     {
         std::lock_guard<std::mutex> meta_lock(metadata_mutex_);
-        for (const auto& e : entries) {
+        for (const auto& e : processed) {
             known_services_.insert(e.service);
         }
     }
@@ -195,13 +205,7 @@ void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch) {
         services.insert(log.service);
         levels.insert(log.level);
 
-        nlohmann::json item = {
-            {"timestamp", log.timestamp},
-            {"level", log.level},
-            {"service", log.service},
-            {"message", log.message},
-            {"raw_json", log.raw_json}
-        };
+        nlohmann::json item = log.to_json();
         uncompressed_data.append(item.dump());
         uncompressed_data.push_back('\n');
     }
@@ -536,4 +540,69 @@ StorageStats LogStorage::get_stats() {
     stats.known_services.assign(known_services_.begin(), known_services_.end());
     std::sort(stats.known_services.begin(), stats.known_services.end());
     return stats;
+}
+
+std::vector<LogEntry> LogStorage::get_trace(const std::string& trace_id) {
+    if (trace_id.empty()) return {};
+
+    std::vector<LogEntry> matched;
+
+    // 1. Scan in-memory batch
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        for (const auto& log : current_batch_) {
+            if (log.trace_id == trace_id ||
+                log.message.find(trace_id) != std::string::npos ||
+                log.raw_json.find(trace_id) != std::string::npos) {
+                matched.push_back(log);
+            }
+        }
+    }
+
+    // 2. Scan chunk files on disk
+    std::vector<ChunkMeta> chunks_copy;
+    {
+        std::lock_guard<std::mutex> lock(metadata_mutex_);
+        chunks_copy = chunks_;
+    }
+
+    for (const auto& chunk : chunks_copy) {
+        std::ifstream file(chunk.chunk_file_path, std::ios::binary);
+        if (!file.is_open()) continue;
+
+        std::vector<char> compressed(chunk.compressed_bytes);
+        file.read(compressed.data(), chunk.compressed_bytes);
+
+        std::string uncompressed(chunk.uncompressed_bytes, '\0');
+        size_t ret = ZSTD_decompress(&uncompressed[0], chunk.uncompressed_bytes,
+                                     compressed.data(), chunk.compressed_bytes);
+        if (ZSTD_isError(ret)) continue;
+
+        // Fast rejection: check if trace_id exists in uncompressed chunk string
+        if (uncompressed.find(trace_id) == std::string::npos) {
+            continue;
+        }
+
+        std::stringstream ss(uncompressed);
+        std::string line;
+        while (std::getline(ss, line)) {
+            if (line.empty()) continue;
+            try {
+                auto j = nlohmann::json::parse(line);
+                LogEntry entry = LogEntry::from_json(j);
+                if (entry.trace_id == trace_id ||
+                    entry.message.find(trace_id) != std::string::npos ||
+                    entry.raw_json.find(trace_id) != std::string::npos) {
+                    matched.push_back(std::move(entry));
+                }
+            } catch (...) {}
+        }
+    }
+
+    // Sort chronologically (earliest span first)
+    std::sort(matched.begin(), matched.end(), [](const LogEntry& a, const LogEntry& b) {
+        return a.timestamp < b.timestamp;
+    });
+
+    return matched;
 }

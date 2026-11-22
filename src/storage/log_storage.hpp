@@ -4,6 +4,8 @@
 #include "chunk_meta.hpp"
 #include "search/query_parser.hpp"
 #include "storage/s3_client.hpp"
+#include "enterprise/noise_filter.hpp"
+#include "enterprise/rca_engine.hpp"
 #include <string>
 #include <vector>
 #include <unordered_set>
@@ -69,13 +71,18 @@ public:
                         size_t max_batch_size = 5000,
                         std::chrono::milliseconds flush_interval = std::chrono::milliseconds(2000),
                         int retention_days = 0,
-                        std::shared_ptr<S3Client> s3_client = nullptr);
+                        std::shared_ptr<S3Client> s3_client = nullptr,
+                        std::shared_ptr<NoiseFilter> noise_filter = nullptr,
+                        std::shared_ptr<RcaEngine> rca_engine = nullptr);
     ~LogStorage();
 
     void append(const LogEntry& entry);
     void append_batch(const std::vector<LogEntry>& entries);
     SearchResult search(const SearchParams& params);
     HistogramResult get_histogram(const SearchParams& params, int64_t step_seconds = 0);
+    std::vector<LogEntry> get_trace(const std::string& trace_id);
+    std::shared_ptr<NoiseFilter> get_noise_filter() const { return noise_filter_; }
+    std::shared_ptr<RcaEngine> get_rca_engine() const { return rca_engine_; }
     StorageStats get_stats();
     void flush();
     void enforce_retention();
@@ -109,4 +116,6 @@ private:
     std::atomic<size_t> total_compressed_bytes_{0};
     std::atomic<size_t> total_uncompressed_bytes_{0};
     std::chrono::steady_clock::time_point last_retention_check_;
+    std::shared_ptr<NoiseFilter> noise_filter_;
+    std::shared_ptr<RcaEngine> rca_engine_;
 };

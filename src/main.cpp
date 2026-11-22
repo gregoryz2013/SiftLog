@@ -41,6 +41,12 @@ int main(int argc, char* argv[]) {
     if (mask_env == "false" || mask_env == "0" || mask_env == "off") {
         mask_pii = false;
     }
+    bool noise_dedup = true;
+    std::string noise_env = get_env("SIFTLOG_NOISE_DEDUP", "true");
+    if (noise_env == "false" || noise_env == "0" || noise_env == "off") {
+        noise_dedup = false;
+    }
+    int noise_window = 5;
     std::string license_path = get_env("SIFTLOG_LICENSE", "");
     std::string update_url = get_env("SIFTLOG_UPDATE_URL", "");
     std::string audit_log_path = get_env("SIFTLOG_AUDIT_LOG", data_dir + "/audit.log");
@@ -112,6 +118,10 @@ int main(int argc, char* argv[]) {
             mask_pii = false;
         } else if (arg == "--mask-pii") {
             mask_pii = true;
+        } else if (arg == "--no-noise-dedup") {
+            noise_dedup = false;
+        } else if (arg == "--noise-window" && i + 1 < argc) {
+            noise_window = std::stoi(argv[++i]);
         } else if (arg == "--help" || arg == "-h") {
             std::cout << "Usage: " << argv[0] << " [options]\n\n"
                       << "Options:\n"
@@ -131,6 +141,8 @@ int main(int argc, char* argv[]) {
                       << "  --update-url <url>           Enterprise update server hostname\n"
                       << "  --audit-log <path>           Enterprise audit trail file path (default: <data-dir>/audit.log)\n"
                       << "  --no-mask-pii                Disable automatic PII & secret masking (default: enabled)\n"
+                      << "  --no-noise-dedup             Disable FinOps sliding-window noise deduplication (default: enabled)\n"
+                      << "  --noise-window <sec>         FinOps noise deduplication sliding window in seconds (default: 5)\n"
                       << "  --tg-token <token>           Telegram Bot token for alerts\n"
                       << "  --tg-chat-id <id>            Telegram Chat ID for alerts\n"
                       << "  --error-threshold <n>        Error spike threshold per 60s window (default: 10)\n"
@@ -139,7 +151,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    std::cout << "[siftlog] version 0.2.0" << std::endl;
+    std::cout << "[siftlog] version 0.4.0" << std::endl;
     std::cout << "[siftlog] host: " << host << ", port: " << port << std::endl;
     std::cout << "[siftlog] data_dir: " << data_dir << std::endl;
     if (retention_days > 0) {
@@ -149,6 +161,7 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "[siftlog] auth: " << (auth_user.empty() ? "disabled (open)" : "basic auth enabled") << std::endl;
     std::cout << "[siftlog] pii & secret masking: " << (mask_pii ? "enabled" : "disabled") << std::endl;
+    std::cout << "[siftlog] finops noise deduplication: " << (noise_dedup ? "enabled (window: " + std::to_string(noise_window) + "s)" : "disabled") << std::endl;
     if (s3_cfg.enabled) {
         std::cout << "[siftlog] s3 sync: enabled (bucket: " << s3_cfg.bucket << ", endpoint: " << s3_cfg.endpoint << ")" << std::endl;
     } else {
@@ -167,10 +180,12 @@ int main(int argc, char* argv[]) {
     }
 
     auto s3_client = std::make_shared<S3Client>(s3_cfg);
-    auto storage = std::make_shared<LogStorage>(data_dir, 5000, std::chrono::milliseconds(2000), retention_days, s3_client);
+    auto noise_filter = std::make_shared<NoiseFilter>(noise_dedup, noise_window);
+    auto rca_engine = std::make_shared<RcaEngine>(60, 3);
+    auto storage = std::make_shared<LogStorage>(data_dir, 5000, std::chrono::milliseconds(2000), retention_days, s3_client, noise_filter, rca_engine);
     auto alert_manager = std::make_shared<AlertManager>(tg_token, tg_chat_id, error_threshold);
     auto pii_masker = std::make_shared<PiiMasker>(mask_pii);
-    auto updater = std::make_shared<EnterpriseUpdater>("0.2.0", update_url);
+    auto updater = std::make_shared<EnterpriseUpdater>("0.4.0", update_url);
     auto audit_ledger = std::make_shared<AuditLedger>(audit_log_path);
     auto server = std::make_shared<ApiServer>(storage, alert_manager, host, port, auth_user, auth_password, pii_masker, license, updater, audit_ledger);
 

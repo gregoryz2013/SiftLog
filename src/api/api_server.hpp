@@ -30,7 +30,6 @@ private:
     void setup_routes();
     static std::string get_client_ip(const httplib::Request& req);
     bool check_auth(const httplib::Request& req, httplib::Response& res);
-    static std::string base64_decode(std::string_view in);
 
     std::shared_ptr<LogStorage> storage_;
     std::shared_ptr<AlertManager> alert_manager_;

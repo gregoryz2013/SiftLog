@@ -1,5 +1,6 @@
 #include "api_server.hpp"
 #include "../web_assets.hpp"
+#include "../utils/base64.hpp"
 #include <iostream>
 #include <iomanip>
 #include <sstream>
@@ -26,28 +27,6 @@ ApiServer::ApiServer(std::shared_ptr<LogStorage> storage,
       audit_ledger_(std::move(audit_ledger)),
       start_time_(std::chrono::steady_clock::now()) {
     setup_routes();
-}
-
-std::string ApiServer::base64_decode(std::string_view in) {
-    static const std::string b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::vector<int> T(256, -1);
-    for (int i = 0; i < 64; ++i) {
-        T[static_cast<unsigned char>(b64[i])] = i;
-    }
-
-    std::string out;
-    int val = 0, valb = -8;
-    for (unsigned char c : in) {
-        if (c == '=') break;
-        if (T[c] == -1) continue;
-        val = (val << 6) + T[c];
-        valb += 6;
-        if (valb >= 0) {
-            out.push_back(static_cast<char>((val >> valb) & 0xFF));
-            valb -= 8;
-        }
-    }
-    return out;
 }
 
 bool ApiServer::check_auth(const httplib::Request& req, httplib::Response& res) {
@@ -506,7 +485,7 @@ void ApiServer::setup_routes() {
                 {"status", "LOCKED"},
                 {"tier_required", "enterprise"},
                 {"audit_events", nlohmann::json::array()},
-                {"message", "Immutable WORM Audit Ledger requires Enterprise ($1,990/mo) subscription."}
+                {"message", "Immutable WORM Audit Ledger requires Enterprise ($1,490/mo) subscription."}
             };
             res.status = 200;
             res.set_content(locked.dump(), "application/json");
@@ -534,7 +513,7 @@ void ApiServer::setup_routes() {
                 {"status", "LOCKED"},
                 {"has_incident", false},
                 {"tier_required", "business"},
-                {"message", "Automated RCA Incident Engine requires Business ($690/mo) or Enterprise subscription."}
+                {"message", "Automated RCA Incident Engine requires Business ($490/mo) or Enterprise subscription."}
             };
             res.status = 200;
             res.set_content(locked.dump(), "application/json");
@@ -571,7 +550,7 @@ void ApiServer::setup_routes() {
                 {"tier_required", "business"},
                 {"spans_count", 0},
                 {"spans", nlohmann::json::array()},
-                {"message", "Interactive APM Trace Waterfall requires Business ($690/mo) or Enterprise subscription. Community users can filter logs by trace_id."}
+                {"message", "Interactive APM Trace Waterfall requires Business ($490/mo) or Enterprise subscription. Community users can filter logs by trace_id."}
             };
             res.status = 200;
             res.set_content(locked.dump(), "application/json");

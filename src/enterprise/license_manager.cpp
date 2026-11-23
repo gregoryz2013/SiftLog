@@ -1,28 +1,7 @@
 #include "enterprise/license_manager.hpp"
+#include "../utils/base64.hpp"
 #include <fstream>
 #include <sstream>
-
-static std::string base64_decode_str(std::string_view in) {
-    static const std::string b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    std::vector<int> T(256, -1);
-    for (int i = 0; i < 64; ++i) {
-        T[static_cast<unsigned char>(b64[i])] = i;
-    }
-
-    std::string out;
-    int val = 0, valb = -8;
-    for (unsigned char c : in) {
-        if (c == '=') break;
-        if (T[c] == -1) continue;
-        val = (val << 6) + T[c];
-        valb += 6;
-        if (valb >= 0) {
-            out.push_back(static_cast<char>((val >> valb) & 0xFF));
-            valb -= 8;
-        }
-    }
-    return out;
-}
 
 EnterpriseLicense LicenseManager::parse_license_file(const std::string& path) {
     EnterpriseLicense lic;
@@ -48,7 +27,7 @@ EnterpriseLicense LicenseManager::parse_license_token(const std::string& raw) {
 
     std::string json_str = trimmed;
     if (!trimmed.empty() && trimmed.front() != '{') {
-        json_str = base64_decode_str(trimmed);
+        json_str = base64_decode(trimmed);
     }
 
     try {

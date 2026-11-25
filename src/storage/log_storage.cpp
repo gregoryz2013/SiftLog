@@ -195,6 +195,7 @@ void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch) {
     int64_t max_ts = batch.front().timestamp;
     std::unordered_set<std::string> services;
     std::unordered_set<std::string> levels;
+    BloomFilter bloom;
 
     std::string uncompressed_data;
     uncompressed_data.reserve(batch.size() * 128);
@@ -204,6 +205,14 @@ void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch) {
         max_ts = std::max(max_ts, log.timestamp);
         services.insert(log.service);
         levels.insert(log.level);
+        bloom.add_token(log.service);
+        if (!log.trace_id.empty()) {
+            bloom.add_token(log.trace_id);
+        }
+        bloom.add_text(log.message);
+        if (!log.raw_json.empty()) {
+            bloom.add_text(log.raw_json);
+        }
 
         nlohmann::json item = log.to_json();
         uncompressed_data.append(item.dump());
@@ -255,6 +264,8 @@ void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch) {
     meta.levels = std::move(levels);
     meta.uncompressed_bytes = uncompressed_size;
     meta.compressed_bytes = compressed_size;
+    meta.has_bloom = true;
+    meta.bloom = std::move(bloom);
 
     {
         std::ofstream meta_file(meta_path);
@@ -385,8 +396,10 @@ SearchResult LogStorage::search(const SearchParams& params) {
     SearchResult result;
 
     std::unique_ptr<LogSqlParser> parser;
+    std::vector<std::string> req_terms;
     if (!params.query.empty()) {
         parser = std::make_unique<LogSqlParser>(params.query);
+        req_terms = parser->required_terms();
     }
 
     std::vector<ChunkMeta> candidate_chunks;
@@ -394,11 +407,15 @@ SearchResult LogStorage::search(const SearchParams& params) {
         std::lock_guard<std::mutex> lock(metadata_mutex_);
         result.total_scanned_chunks = chunks_.size();
         for (const auto& ch : chunks_) {
-            if (!ch.can_skip(params.from_ts, params.to_ts, params.service, params.level)) {
+            if (!ch.can_skip(params.from_ts, params.to_ts, params.service, params.level) &&
+                !ch.can_skip_terms(req_terms)) {
                 candidate_chunks.push_back(ch);
             }
         }
     }
+    std::sort(candidate_chunks.begin(), candidate_chunks.end(), [](const ChunkMeta& a, const ChunkMeta& b) {
+        return a.max_ts > b.max_ts;
+    });
     result.matched_chunks = candidate_chunks.size();
 
     std::vector<LogEntry> all_matches;
@@ -411,18 +428,35 @@ SearchResult LogStorage::search(const SearchParams& params) {
                                std::make_move_iterator(chunk_matches.end()));
         }
     } else {
-        std::vector<std::future<std::vector<LogEntry>>> futures;
-        futures.reserve(candidate_chunks.size());
-        for (const auto& ch : candidate_chunks) {
-            futures.push_back(std::async(std::launch::async, [ch, params, p = parser.get()]() {
-                return search_chunk_file(ch, params, p);
-            }));
+        // Bounded worker pool prevents spawning thousands of threads on multi-terabyte datasets
+        size_t hw = std::thread::hardware_concurrency();
+        size_t num_workers = std::min<size_t>(std::max<size_t>(hw, 2), std::min<size_t>(8, candidate_chunks.size()));
+        std::atomic<size_t> next_idx{0};
+        std::vector<std::vector<LogEntry>> worker_results(num_workers);
+        std::vector<std::thread> workers;
+        workers.reserve(num_workers);
+
+        for (size_t w = 0; w < num_workers; ++w) {
+            workers.emplace_back([&, w]() {
+                while (true) {
+                    size_t idx = next_idx.fetch_add(1, std::memory_order_relaxed);
+                    if (idx >= candidate_chunks.size()) break;
+                    auto chunk_matches = search_chunk_file(candidate_chunks[idx], params, parser.get());
+                    if (!chunk_matches.empty()) {
+                        worker_results[w].insert(worker_results[w].end(),
+                                                 std::make_move_iterator(chunk_matches.begin()),
+                                                 std::make_move_iterator(chunk_matches.end()));
+                    }
+                }
+            });
         }
-        for (auto& fut : futures) {
-            auto chunk_matches = fut.get();
+        for (auto& t : workers) {
+            t.join();
+        }
+        for (auto& wr : worker_results) {
             all_matches.insert(all_matches.end(),
-                               std::make_move_iterator(chunk_matches.begin()),
-                               std::make_move_iterator(chunk_matches.end()));
+                               std::make_move_iterator(wr.begin()),
+                               std::make_move_iterator(wr.end()));
         }
     }
 
@@ -475,8 +509,10 @@ HistogramResult LogStorage::get_histogram(const SearchParams& params, int64_t st
     }
 
     std::unique_ptr<LogSqlParser> parser;
+    std::vector<std::string> req_terms;
     if (!params.query.empty()) {
         parser = std::make_unique<LogSqlParser>(params.query);
+        req_terms = parser->required_terms();
     }
 
     auto record_entry = [&](const LogEntry& entry) {
@@ -499,7 +535,8 @@ HistogramResult LogStorage::get_histogram(const SearchParams& params, int64_t st
     {
         std::lock_guard<std::mutex> lock(metadata_mutex_);
         for (const auto& ch : chunks_) {
-            if (!ch.can_skip(from_ts, to_ts, params.service, params.level)) {
+            if (!ch.can_skip(from_ts, to_ts, params.service, params.level) &&
+                !ch.can_skip_terms(req_terms)) {
                 candidate_chunks.push_back(ch);
             }
         }
@@ -562,6 +599,9 @@ std::vector<LogEntry> LogStorage::get_trace(const std::string& trace_id) {
     }
 
     for (const auto& chunk : chunks_copy) {
+        if (chunk.has_bloom && !chunk.bloom.might_contain_text(trace_id)) {
+            continue;
+        }
         std::ifstream file(chunk.chunk_file_path, std::ios::binary);
         if (!file.is_open()) continue;
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bloom_filter.hpp"
 #include <string>
 #include <vector>
 #include <unordered_set>
@@ -17,6 +18,8 @@ struct ChunkMeta {
     std::unordered_set<std::string> levels;
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
+    bool has_bloom = false;
+    BloomFilter bloom;
 
     bool can_skip(int64_t from_ts, int64_t to_ts, const std::string& service_filter, const std::string& level_filter) const noexcept {
         if (from_ts > 0 && max_ts < from_ts) return true;
@@ -26,8 +29,18 @@ struct ChunkMeta {
         return false;
     }
 
+    bool can_skip_terms(const std::vector<std::string>& required_terms) const noexcept {
+        if (!has_bloom || required_terms.empty()) return false;
+        for (const auto& term : required_terms) {
+            if (!bloom.might_contain_text(term)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     nlohmann::json to_json() const {
-        return nlohmann::json{
+        nlohmann::json j{
             {"id", id},
             {"chunk_file", chunk_file_path},
             {"min_ts", min_ts},
@@ -38,6 +51,10 @@ struct ChunkMeta {
             {"uncompressed_bytes", uncompressed_bytes},
             {"compressed_bytes", compressed_bytes}
         };
+        if (has_bloom) {
+            j["bloom"] = bloom.to_hex();
+        }
+        return j;
     }
 
     static ChunkMeta from_json(const nlohmann::json& j, const std::string& meta_path) {
@@ -59,6 +76,9 @@ struct ChunkMeta {
             for (const auto& l : j["levels"]) {
                 m.levels.insert(l.get<std::string>());
             }
+        }
+        if (j.contains("bloom") && j["bloom"].is_string()) {
+            m.has_bloom = m.bloom.from_hex(j["bloom"].get<std::string>());
         }
         return m;
     }

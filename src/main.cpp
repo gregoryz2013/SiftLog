@@ -183,7 +183,7 @@ int main(int argc, char* argv[]) {
     bool finops_enabled = noise_dedup && license.has_feature("finops_dedup");
     auto noise_filter = std::make_shared<NoiseFilter>(finops_enabled, noise_window);
     auto rca_engine = std::make_shared<RcaEngine>(60, 3);
-    auto storage = std::make_shared<LogStorage>(data_dir, 5000, std::chrono::milliseconds(2000), retention_days, s3_client, noise_filter, rca_engine);
+    auto storage = std::make_shared<LogStorage>(data_dir, 20000, std::chrono::milliseconds(2000), retention_days, s3_client, noise_filter, rca_engine);
     auto alert_manager = std::make_shared<AlertManager>(tg_token, tg_chat_id, error_threshold);
     auto pii_masker = std::make_shared<PiiMasker>(mask_pii);
     auto updater = std::make_shared<EnterpriseUpdater>("0.5.0", update_url);

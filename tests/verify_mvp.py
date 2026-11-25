@@ -243,6 +243,14 @@ def main():
             assert "passport" not in log["message"].lower(), "LogSQL NOT failed"
         print("PASS: LogSQL queries (exact phrase, field filters, AND, NOT)")
 
+        # Test Bloom-filter chunk skipping (non-existent token must skip all chunks without Zstd decompression)
+        status, res = http_get("/api/v1/search?q=nonexistent_bloom_token_xyz987654")
+        assert status == 200
+        bloom_data = json.loads(res)
+        assert bloom_data["total_scanned_chunks"] >= 1
+        assert bloom_data["matched_chunks"] == 0, f"Bloom filter did not skip chunks: matched={bloom_data['matched_chunks']}"
+        print("PASS: Per-chunk Bloom filter skipping (0 chunks decompressed for non-matching term)")
+
         # Test Timeline Histogram API
         status, res = http_get("/api/v1/histogram?step=60")
         assert status == 200

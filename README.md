@@ -61,8 +61,9 @@ python3 tests/benchmark_ingest.py
 
 ## Architecture & Capabilities
 
-- **Low Memory Footprint:** ~10 MB RAM idle, ~37 MB under 110k logs/sec load; runs comfortably on a 1 vCPU / 1 GB VPS.
-- **Zstandard Chunk Compression:** 15x–25x compression ratio on typical structured JSON logs with sparse min/max timestamp and service indexing.
+- **Multi-Terabyte Scale (Up to 2.5 TB+ Raw Logs):** Each compressed chunk stores a sparse index (`min_ts`, `max_ts`, `services`, `levels`) plus an **8192-bit per-chunk Bloom filter** (`1 KB`), skipping non-matching chunks without Zstd decompression. Bounded worker pools keep search memory predictable even across hundreds of thousands of chunks.
+- **Low Memory Footprint:** ~10 MB RAM idle, ~37 MB under 110k logs/sec load; runs comfortably on a 1 vCPU / 1 GB VPS (2–4 GB RAM recommended for multi-terabyte archives).
+- **Zstandard Chunk Compression:** 15x–25x compression ratio on typical structured JSON logs (2.5 TB raw → ~100–160 GB on disk).
 - **Zero External Dependencies:** Single statically linked binary (~2.2 MB) with embedded web dashboard.
 - **LogSQL Query Engine:** Supports exact phrases (`"connection refused"`), field filters (`service:auth level:ERROR`), and boolean operators (`AND`, `OR`, `NOT`, `!`).
 - **Noise Deduplication:** Sliding-window aggregation collapsing repeated identical logs into single entries with `repeat_count` counters.

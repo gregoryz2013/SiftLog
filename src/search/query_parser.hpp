@@ -28,6 +28,9 @@ public:
     // Evaluates whether a log entry matches the parsed LogSQL expression
     bool matches(const LogEntry& entry) const;
 
+    // Extracts positive search terms that must appear in any matching chunk (for Bloom pre-filtering)
+    std::vector<std::string> required_terms() const;
+
     bool is_empty() const noexcept { return tokens_.empty(); }
 
 private:

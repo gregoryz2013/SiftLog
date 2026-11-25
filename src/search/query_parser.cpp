@@ -146,3 +146,34 @@ bool LogSqlParser::matches(const LogEntry& entry) const {
 
     return overall_result && current_or_branch;
 }
+
+std::vector<std::string> LogSqlParser::required_terms() const {
+    std::vector<std::string> terms;
+    // If query uses OR, we cannot safely require any single term across the whole chunk
+    for (const auto& t : tokens_) {
+        if (t.type == TokenType::OR) {
+            return {};
+        }
+    }
+
+    bool negate_next = false;
+    for (const auto& t : tokens_) {
+        if (t.type == TokenType::NOT) {
+            negate_next = true;
+            continue;
+        }
+        if (t.type == TokenType::AND) {
+            continue;
+        }
+        if (negate_next) {
+            negate_next = false;
+            continue;
+        }
+        if (t.type == TokenType::STRING && t.value.size() >= 2) {
+            terms.push_back(t.value);
+        } else if (t.type == TokenType::FIELD_FILTER && t.field != "level" && t.field != "lvl" && t.value.size() >= 2) {
+            terms.push_back(t.value);
+        }
+    }
+    return terms;
+}

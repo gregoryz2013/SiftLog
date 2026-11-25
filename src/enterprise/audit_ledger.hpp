@@ -11,6 +11,8 @@ struct AuditRecord {
     std::string action;     // "SEARCH", "INGEST", "AUTH_LOGIN", "CONFIG"
     std::string details;
     std::string status;     // "SUCCESS", "DENIED"
+    std::string prev_hash;
+    std::string hash;
 
     nlohmann::json to_json() const {
         return nlohmann::json{
@@ -18,7 +20,9 @@ struct AuditRecord {
             {"actor", actor},
             {"action", action},
             {"details", details},
-            {"status", status}
+            {"status", status},
+            {"prev_hash", prev_hash},
+            {"hash", hash}
         };
     }
 };
@@ -36,6 +40,7 @@ public:
 
 private:
     std::string log_file_path_;
+    std::string last_hash_;
     std::mutex mutex_;
     std::vector<AuditRecord> memory_cache_;
 };

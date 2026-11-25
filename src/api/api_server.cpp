@@ -485,7 +485,7 @@ void ApiServer::setup_routes() {
                 {"status", "LOCKED"},
                 {"tier_required", "enterprise"},
                 {"audit_events", nlohmann::json::array()},
-                {"message", "Immutable WORM Audit Ledger requires Enterprise ($1,490/mo) subscription."}
+                {"message", "Audit ledger requires an Enterprise license."}
             };
             res.status = 200;
             res.set_content(locked.dump(), "application/json");
@@ -513,7 +513,7 @@ void ApiServer::setup_routes() {
                 {"status", "LOCKED"},
                 {"has_incident", false},
                 {"tier_required", "business"},
-                {"message", "Automated RCA Incident Engine requires Business ($490/mo) or Enterprise subscription."}
+                {"message", "Root Cause Analysis (RCA) requires a Business or Enterprise license."}
             };
             res.status = 200;
             res.set_content(locked.dump(), "application/json");
@@ -550,7 +550,7 @@ void ApiServer::setup_routes() {
                 {"tier_required", "business"},
                 {"spans_count", 0},
                 {"spans", nlohmann::json::array()},
-                {"message", "Interactive APM Trace Waterfall requires Business ($490/mo) or Enterprise subscription. Community users can filter logs by trace_id."}
+                {"message", "Trace waterfall requires a Business or Enterprise license. Filter by trace_id in Community."}
             };
             res.status = 200;
             res.set_content(locked.dump(), "application/json");

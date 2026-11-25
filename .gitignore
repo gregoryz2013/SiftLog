@@ -19,3 +19,6 @@ test_data/
 # OS generated
 .DS_Store
 Thumbs.db
+
+# Local agent configs
+.agents/

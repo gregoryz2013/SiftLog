@@ -1,5 +1,6 @@
-﻿#pragma once
+#pragma once
 #include <string_view>
+
 static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
 <!DOCTYPE html>
 <html lang="en">
@@ -889,9 +890,8 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
         <span style="font-family:var(--mono); font-size:0.8rem;">[||]</span>
       </button>
       <span class="brand">SIFTLOG</span>
-      <span class="tag">v0.4.0</span>
-      <span class="tag tag-plan" id="plan-badge">COMMUNITY</span>
-      <span class="tag tag-accent">FinOps Engine</span>
+      <span class="tag">v0.5.0</span>
+      <span class="tag tag-plan" id="plan-badge" style="display:none;"></span>
     </div>
 
     <!-- Live Telemetry Metrics -->
@@ -928,8 +928,7 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
 
     <!-- Header Actions -->
     <div class="header-right">
-      <button class="btn btn-secondary" id="audit-btn" onclick="openAuditModal()" title="Enterprise WORM Audit Ledger" style="display:none; font-family:var(--mono); font-size:0.68rem;">Audit</button>
-      <button class="btn btn-secondary" onclick="openPricingModal()" title="Plans &amp; Pricing">Plans</button>
+      <button class="btn btn-secondary" id="audit-btn" onclick="openAuditModal()" title="Audit Trail" style="display:none; font-family:var(--mono); font-size:0.68rem;">Audit</button>
       <button class="btn-live" id="live-btn" onclick="toggleLiveTail()" title="Toggle real-time stream (s)">Live: OFF</button>
       <button class="btn btn-secondary" onclick="exportData('json')" title="Export matching logs as JSON">JSON</button>
       <button class="btn btn-secondary" onclick="exportData('csv')" title="Export matching logs as CSV">CSV</button>
@@ -1001,18 +1000,17 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
         </div>
       </div>
 
-      <!-- Enterprise License Block -->
+      <!-- Edition Info Block -->
       <div class="sidebar-block" id="enterprise-block" style="margin-top:auto; background:rgba(15, 23, 42, 0.4); border-top:1px solid var(--border);">
         <div class="sidebar-heading">
-          <span>License</span>
+          <span>Edition</span>
           <span class="badge" id="sidebar-plan-badge" style="color:var(--text-muted); border-color:var(--border);">COMMUNITY</span>
         </div>
         <div style="font-family:var(--mono); font-size:0.64rem; color:var(--text-muted); line-height:1.45; margin-top:0.2rem;">
-          <div id="ent-customer">Customer: Community Edition</div>
-          <div id="ent-status">Status: Unlicensed</div>
-          <div id="ent-features" style="margin-top:0.25rem; color:var(--text-dim);">RCA Engine &bull; FinOps Dedup &bull; Tracing</div>
+          <div id="ent-customer">Community Edition</div>
+          <div id="ent-status">License: Apache 2.0</div>
+          <div id="ent-features" style="margin-top:0.25rem; color:var(--text-dim);">Zstd &bull; LogSQL &bull; PII Masking</div>
         </div>
-        <button class="btn btn-secondary" onclick="openPricingModal()" style="font-size:0.65rem; padding:0.25rem 0.5rem; margin-top:0.4rem; width:100%;" id="upgrade-btn">View Plans →</button>
       </div>
     </aside>
 
@@ -1444,7 +1442,7 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       } catch (e) {}
     }
 
-    /* Pro-Grade Canvas Chart Renderer (Bars & Area with Crosshair and Axes) */
+    /* Time-Series Canvas Chart Renderer */
     function renderChart() {
       const canvas = document.getElementById('chart-canvas');
       if (!canvas) return;
@@ -1905,21 +1903,22 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
 
         if (lic.is_active) {
           const rawPlan = (lic.plan || 'pro').toLowerCase();
-          let tierName = 'PRO ($149/mo)';
+          let tierName = 'PRO';
           let badgeClass = 'tag tag-pro';
-          let featText = 'FinOps Dedup: Active &bull; S3 Sync &bull; Email Support';
+          let featText = 'Noise Dedup &bull; S3 Sync';
 
           if (rawPlan.includes('business')) {
-            tierName = 'BUSINESS ($490/mo)';
+            tierName = 'BUSINESS';
             badgeClass = 'tag tag-business';
-            featText = 'FinOps Dedup &bull; RCA Engine &bull; APM Waterfall &bull; Priority Support';
+            featText = 'Noise Dedup &bull; RCA &bull; Trace Waterfall';
           } else if (rawPlan.includes('enterprise') || rawPlan.includes('ultimate')) {
-            tierName = 'ENTERPRISE ($1,490/mo)';
+            tierName = 'ENTERPRISE';
             badgeClass = 'tag tag-enterprise';
-            featText = 'Full Suite &bull; WORM Audit &bull; SOC2 &bull; Auto-Updater &bull; SLA 99.9%';
+            featText = 'Full Suite &bull; Audit Chain &bull; Updater';
           }
 
           if (planBadge) {
+            planBadge.style.display = 'inline-block';
             planBadge.className = badgeClass;
             planBadge.innerText = tierName;
           }
@@ -1927,27 +1926,26 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
             sideBadge.className = 'badge';
             sideBadge.style.color = '#c084fc';
             sideBadge.style.borderColor = 'rgba(192, 132, 252, 0.4)';
-            sideBadge.innerText = 'ACTIVE';
+            sideBadge.innerText = tierName;
           }
-          if (custEl) custEl.innerText = `Client: ${lic.customer || 'Licensed Customer'}`;
+          if (custEl) custEl.innerText = `Org: ${lic.customer || 'Licensed'}`;
           if (statEl) {
-            const exp = lic.expires_at_ms ? new Date(lic.expires_at_ms).toISOString().slice(0, 10) : 'Permanent';
-            statEl.innerHTML = `<span style="color:#10b981;">Valid</span> (exp: ${exp})`;
+            const exp = lic.expires_at_ms ? new Date(lic.expires_at_ms).toISOString().slice(0, 10) : 'Perpetual';
+            statEl.innerHTML = `<span style="color:#10b981;">Active</span> (exp: ${exp})`;
           }
           if (featEl) featEl.innerHTML = featText;
           if (auditBtn) auditBtn.style.display = (lic.features && lic.features.audit_ledger) ? 'inline-block' : 'none';
         } else {
           if (planBadge) {
-            planBadge.className = 'tag';
-            planBadge.innerText = 'COMMUNITY ($0)';
+            planBadge.style.display = 'none';
           }
           if (sideBadge) {
             sideBadge.className = 'badge';
-            sideBadge.innerText = 'FREE';
+            sideBadge.innerText = 'OSS';
           }
-          if (custEl) custEl.innerText = 'Plan: Community (Free)';
-          if (statEl) statEl.innerHTML = '<span style="color:var(--color-info);">Open Source</span> (Apache 2.0)';
-          if (featEl) featEl.innerHTML = 'Core Ingestion &bull; Zstd Compression &bull; LogSQL &bull; PII Masking';
+          if (custEl) custEl.innerText = 'Community Edition';
+          if (statEl) statEl.innerText = 'License: Apache 2.0';
+          if (featEl) featEl.innerHTML = 'Zstd &bull; LogSQL &bull; PII Masking';
           if (auditBtn) auditBtn.style.display = 'none';
         }
       } catch (e) {}
@@ -1973,12 +1971,13 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
         let html = '';
         events.forEach(ev => {
           const tStr = formatTime(ev.timestamp);
+          const shortHash = ev.hash ? ev.hash.slice(0, 12) : '-';
           html += `
             <tr>
               <td class="cell-time">${tStr}</td>
               <td style="color:#cbd5e1; font-family:var(--mono);">${escapeHtml(ev.actor || 'internal')}</td>
               <td><span class="badge badge-INFO">${escapeHtml(ev.action || 'OP')}</span></td>
-              <td style="color:#94a3b8; font-size:0.7rem; font-family:var(--mono); word-break:break-all;">${escapeHtml(ev.details || '')}</td>
+              <td style="color:#94a3b8; font-size:0.7rem; font-family:var(--mono); word-break:break-all;">${escapeHtml(ev.details || '')} <span style="color:var(--text-dim);">[${escapeHtml(shortHash)}]</span></td>
             </tr>
           `;
         });
@@ -2248,7 +2247,6 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
         closeShortcutsModal();
         closeIngestModal();
         closeAuditModal();
-        closePricingModal();
       }
     });
 
@@ -2259,110 +2257,7 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
     setInterval(fetchStats, 5000);
     setInterval(fetchLicense, 10000);
     setInterval(fetchRca, 5000);
-
-    function openPricingModal() {
-      document.getElementById('pricing-modal').classList.add('active');
-    }
-    function closePricingModal() {
-      document.getElementById('pricing-modal').classList.remove('active');
-    }
   </script>
-
-<!-- Pricing Modal -->
-<div class="modal-overlay" id="pricing-modal">
-  <div class="modal-frame" style="max-width: 860px;">
-    <div class="modal-top">
-      <div style="display:flex; align-items:center; gap:0.6rem;">
-        <h3>SiftLog Plans &amp; Pricing</h3>
-        <span class="badge" style="color:var(--color-success); border-color:rgba(16,185,129,0.4);">Self-Hosted · No Vendor Lock-in</span>
-      </div>
-      <button class="modal-close-btn" onclick="closePricingModal()">&times;</button>
-    </div>
-    <div class="modal-content" style="display:grid; grid-template-columns: repeat(4,1fr); gap:0.75rem; padding: 1rem;">
-
-      <!-- Community -->
-      <div style="background:var(--surface-elevated); border:1px solid var(--border); border-radius:5px; padding:1rem; display:flex; flex-direction:column; gap:0.5rem;">
-        <div style="font-family:var(--mono); font-size:0.68rem; text-transform:uppercase; color:var(--text-muted); letter-spacing:0.08em;">Community</div>
-        <div style="font-size:1.5rem; font-weight:700; color:#fff; font-family:var(--mono);">Free</div>
-        <div style="font-size:0.68rem; color:var(--text-muted); font-family:var(--mono);">Open source · Apache 2.0</div>
-        <hr style="border-color:var(--border); margin:0.25rem 0;">
-        <div style="font-size:0.72rem; color:var(--text-muted); display:flex; flex-direction:column; gap:0.3rem; font-family:var(--mono);">
-          <div>✓ Core log ingestion</div>
-          <div>✓ Zstd 15–25x compression</div>
-          <div>✓ LogSQL search engine</div>
-          <div>✓ Activity histogram</div>
-          <div>✓ PII auto-masking</div>
-          <div>✓ Vector / Fluent Bit</div>
-          <div>✓ HTTP Basic Auth</div>
-          <div style="color:var(--text-dim);">— FinOps deduplication</div>
-          <div style="color:var(--text-dim);">— RCA Incident Engine</div>
-          <div style="color:var(--text-dim);">— APM Trace Waterfall</div>
-        </div>
-      </div>
-
-      <!-- Pro -->
-      <div style="background:var(--surface-elevated); border:1px solid rgba(56,189,248,0.35); border-radius:5px; padding:1rem; display:flex; flex-direction:column; gap:0.5rem;">
-        <div style="font-family:var(--mono); font-size:0.68rem; text-transform:uppercase; color:var(--color-info); letter-spacing:0.08em;">Pro</div>
-        <div style="font-size:1.5rem; font-weight:700; color:#fff; font-family:var(--mono);">$149<span style="font-size:0.8rem; color:var(--text-muted);">/mo</span></div>
-        <div style="font-size:0.68rem; color:var(--text-muted); font-family:var(--mono);">Per server instance</div>
-        <hr style="border-color:var(--border); margin:0.25rem 0;">
-        <div style="font-size:0.72rem; color:var(--text-muted); display:flex; flex-direction:column; gap:0.3rem; font-family:var(--mono);">
-          <div>✓ Everything in Community</div>
-          <div style="color:var(--color-info);">✓ FinOps Noise Deduplication</div>
-          <div style="color:var(--color-info);">✓ Save 60–90% storage costs</div>
-          <div style="color:var(--color-info);">✓ Direct S3 / MinIO sync</div>
-          <div>✓ Email support</div>
-          <div style="color:var(--text-dim);">— RCA Incident Engine</div>
-          <div style="color:var(--text-dim);">— APM Trace Waterfall</div>
-          <div style="color:var(--text-dim);">— Audit Ledger</div>
-        </div>
-      </div>
-
-      <!-- Business — РЕКОМЕНДУЕМЫЙ -->
-      <div style="background:var(--surface-elevated); border:2px solid rgba(96,165,250,0.6); border-radius:5px; padding:1rem; display:flex; flex-direction:column; gap:0.5rem; position:relative;">
-        <div style="position:absolute; top:-10px; left:50%; transform:translateX(-50%); background:#2563eb; color:#fff; font-family:var(--mono); font-size:0.6rem; padding:0.15rem 0.6rem; border-radius:3px; white-space:nowrap;">MOST POPULAR</div>
-        <div style="font-family:var(--mono); font-size:0.68rem; text-transform:uppercase; color:#60a5fa; letter-spacing:0.08em;">Business</div>
-        <div style="font-size:1.5rem; font-weight:700; color:#fff; font-family:var(--mono);">$490<span style="font-size:0.8rem; color:var(--text-muted);">/mo</span></div>
-        <div style="font-size:0.68rem; color:var(--text-muted); font-family:var(--mono);">Up to 5 server instances</div>
-        <hr style="border-color:var(--border); margin:0.25rem 0;">
-        <div style="font-size:0.72rem; color:var(--text-muted); display:flex; flex-direction:column; gap:0.3rem; font-family:var(--mono);">
-          <div>✓ Everything in Pro</div>
-          <div style="color:#60a5fa;">✓ Automated RCA Engine</div>
-          <div style="color:#60a5fa;">✓ APM Trace Waterfall</div>
-          <div style="color:#60a5fa;">✓ Cascade failure detection</div>
-          <div style="color:#60a5fa;">✓ Telegram / webhook alerts</div>
-          <div style="color:#60a5fa;">✓ Priority support (24h SLA)</div>
-          <div style="color:var(--text-dim);">— WORM Audit Ledger</div>
-          <div style="color:var(--text-dim);">— Auto-Updater</div>
-        </div>
-      </div>
-
-      <!-- Enterprise -->
-      <div style="background:var(--surface-elevated); border:1px solid rgba(192,132,252,0.35); border-radius:5px; padding:1rem; display:flex; flex-direction:column; gap:0.5rem;">
-        <div style="font-family:var(--mono); font-size:0.68rem; text-transform:uppercase; color:#c084fc; letter-spacing:0.08em;">Enterprise</div>
-        <div style="font-size:1.5rem; font-weight:700; color:#fff; font-family:var(--mono);">$1,490<span style="font-size:0.8rem; color:var(--text-muted);">/mo</span></div>
-        <div style="font-size:0.68rem; color:var(--text-muted); font-family:var(--mono);">Unlimited instances</div>
-        <hr style="border-color:var(--border); margin:0.25rem 0;">
-        <div style="font-size:0.72rem; color:var(--text-muted); display:flex; flex-direction:column; gap:0.3rem; font-family:var(--mono);">
-          <div>✓ Everything in Business</div>
-          <div style="color:#c084fc;">✓ WORM Audit Ledger</div>
-          <div style="color:#c084fc;">✓ SOC2 / ISO-27001 ready</div>
-          <div style="color:#c084fc;">✓ Auto-updater daemon</div>
-          <div style="color:#c084fc;">✓ 99.9% uptime SLA</div>
-          <div style="color:#c084fc;">✓ Dedicated engineer support</div>
-          <div style="color:#c084fc;">✓ Custom deployment help</div>
-          <div style="color:#c084fc;">✓ NDA available</div>
-        </div>
-      </div>
-
-    </div>
-    <div style="padding:0.75rem 1rem; border-top:1px solid var(--border); font-family:var(--mono); font-size:0.68rem; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
-      <span>All plans include on-premise deployment · <strong style="color:var(--text);">No data sent to cloud</strong> · License key activation</span>
-      <span style="color:var(--color-info);">Contact: sales@siftlog.io</span>
-    </div>
-  </div>
-</div>
-
 </body>
 </html>
 

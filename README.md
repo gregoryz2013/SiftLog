@@ -1,80 +1,76 @@
 ﻿# SiftLog
 
-SiftLog is a lightweight, high-performance on-premise log ingestion and search daemon written in modern C++20. It stores logs in compressed Zstandard chunks with sparse metadata indexing, avoiding the memory footprint of inverted full-text indexes.
+[![CI / CD](https://github.com/gregoryz2013/SiftLog/actions/workflows/ci.yml/badge.svg)](https://github.com/gregoryz2013/SiftLog/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/gregoryz2013/SiftLog?display_name=tag)](https://github.com/gregoryz2013/SiftLog/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-It includes an embedded web dashboard, native support for running behind reverse proxies (Nginx, Apache HTTP Server, Caddy, HAProxy), and drop-in compatibility with **Fluent Bit** and **Vector**.
+Single-binary C++20 log ingestion and search engine. Stores logs in Zstandard-compressed chunks with sparse metadata indexing, keeping idle RAM usage around 10 MB without inverted full-text indexes or JVM overhead.
 
-## Highlights
+Includes an embedded web UI, LogSQL query parser, automatic PII/secret redaction, and drop-in compatibility with **Vector**, **Fluent Bit**, and **Promtail** (`/loki/api/v1/push` and NDJSON).
 
-- **Low Memory Footprint:** Consumes ~10 MB RAM under load. Designed for single VPS deployments (1 vCPU, 1 GB RAM).
-- **Zstandard Block Compression:** Typical 15x–25x compression ratio on structured JSON logs.
-- **Sparse Chunk Indexing:** Skips non-matching chunks by timestamp and metadata without decompression.
-- **Standalone Binary:** 2.2 MB statically linked executable with embedded web dashboard.
-- **FinOps Noise Dropper:** Ingestion deduplication aggregating repeated `INFO`/`DEBUG` logs (e.g. `GET /health` repeated 50,000x) into single entries with `repeat_count` counters within a sliding window, saving 60-90% storage without losing errors.
-- **Root Cause Analysis (RCA):** Automated incident detector identifying the originating service and first fault that triggered cascade failures across microservices.
-- **Distributed Trace Stitching & Waterfall:** Log-based trace reconstruction (`trace_id` / `request_id`) with interactive Gantt waterfall timeline in Web UI without Jaeger or OTel collectors.
-- **LogSQL Engine:** Advanced query parser supporting quoted exact phrases, field filters (`service:auth`, `level:ERROR`), and boolean operators (`AND`, `OR`, `NOT`, `!`).
-- **Activity Histogram:** Interactive log volume & error spike timeline in Web UI and API (`GET /api/v1/histogram`).
-- **Direct S3 Bucket Sync:** Automatic non-blocking upload of compressed chunks to S3-compatible storage (MinIO, Yandex Cloud, AWS S3).
-- **Fluent Bit & Vector Compatible:** Native support for Loki push API (`/loki/api/v1/push`) and NDJSON streaming.
-- **PII & Secrets Auto-Masking:** Automatically scrubs passwords, JWTs, API keys, payment cards, and passports before saving to disk.
-- **Log Retention Policy:** Automated background pruning of chunks older than N days (`--retention-days`).
-- **Access Control:** Built-in HTTP Basic Auth for UI and API (`--auth-user`, `--auth-password`).
-- **Reverse Proxy Ready:** Transparent support for `X-Forwarded-For`, `X-Real-IP`, subpath routing, and load balancer health checks (`/health`).
-- **Error Tracking & Alerting:** Built-in sliding-window error spike detector with Telegram Bot API webhook support.
+![SiftLog Web Dashboard](docs/dashboard.png)
 
-## Getting Started
+## Quick Start
 
-### Build from Source
+### Linux / macOS (Pre-built binary)
 
-Dependencies (`zstd`, `cpp-httplib`, `nlohmann/json`) are resolved automatically via CMake `FetchContent`:
-
-```bash
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
+```sh
+curl -fsSL https://raw.githubusercontent.com/gregoryz2013/SiftLog/main/install.sh | sh
+siftlog --host 127.0.0.1 --port 8080 --data-dir ./data
 ```
 
-The resulting binary will be located at `build/siftlog` (`build/siftlog.exe` on Windows).
+Or download binaries directly from [GitHub Releases](https://github.com/gregoryz2013/SiftLog/releases) (`siftlog-linux-x86_64`, `siftlog-windows-x86_64.exe`, `siftlog-macos-arm64`).
 
-### Running
+### Docker
 
-```bash
-./build/siftlog --host 127.0.0.1 --port 8080 --data-dir ./data --retention-days 14
+```sh
+docker compose up -d
 ```
 
-Command-line flags and matching environment variables:
+Open `http://127.0.0.1:8080` in your browser.
 
-| Flag | Environment Variable | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `--host` | `SIFTLOG_HOST` | `0.0.0.0` | Bind IP (`127.0.0.1` recommended behind reverse proxy) |
-| `--port` | `SIFTLOG_PORT` | `8080` | Listen port |
-| `--data-dir` | `SIFTLOG_DATA_DIR` | `./data` | Path to store compressed log chunks |
-| `--retention-days` | `SIFTLOG_RETENTION_DAYS` | `0` | Auto-prune chunks older than N days (`0` = disabled) |
-| `--auth-user` | `SIFTLOG_AUTH_USER` | `""` | HTTP Basic Auth username (empty = public) |
-| `--auth-password` | `SIFTLOG_AUTH_PASSWORD` | `""` | HTTP Basic Auth password |
-| `--no-mask-pii` | `SIFTLOG_MASK_PII` | `enabled` | Disable automatic PII, secret, and token redaction |
-| `--no-noise-dedup` | `SIFTLOG_NOISE_DEDUP` | `enabled` | Disable FinOps sliding-window noise deduplication |
-| `--noise-window` | `SIFTLOG_NOISE_WINDOW` | `5` | FinOps noise deduplication sliding window (seconds) |
-| `--s3-endpoint` | `SIFTLOG_S3_ENDPOINT` | `""` | S3 endpoint (e.g. `storage.yandexcloud.net`, `s3.amazonaws.com`) |
-| `--s3-bucket` | `SIFTLOG_S3_BUCKET` | `""` | S3 bucket name for chunk offloading |
-| `--s3-region` | `SIFTLOG_S3_REGION` | `us-east-1` | S3 region |
-| `--s3-access-key` | `SIFTLOG_S3_ACCESS_KEY` | `""` | S3 Access Key ID |
-| `--s3-secret-key` | `SIFTLOG_S3_SECRET_KEY` | `""` | S3 Secret Access Key |
-| `--s3-prefix` | `SIFTLOG_S3_PREFIX` | `siftlog` | S3 object key prefix |
-| `--license` | `SIFTLOG_LICENSE` | `""` | Enterprise license file or key token |
-| `--update-url` | `SIFTLOG_UPDATE_URL` | `""` | Enterprise update server hostname |
-| `--audit-log` | `SIFTLOG_AUDIT_LOG` | `<data-dir>/audit.log` | Enterprise compliance audit trail file |
-| `--error-threshold` | `SIFTLOG_ERROR_THRESHOLD` | `10` | Error spike threshold per service within 60s window |
-| `--tg-token` | `SIFTLOG_TG_TOKEN` | `""` | Telegram Bot API token for alert dispatches |
-| `--tg-chat-id` | `SIFTLOG_TG_CHAT_ID` | `""` | Telegram chat ID |
+### Send Test Logs
 
----
+```sh
+curl -X POST http://127.0.0.1:8080/api/v1/logs \
+  -H "Content-Type: application/json" \
+  -d '[
+    {"service": "api-gateway", "level": "INFO", "message": "POST /v1/checkout 200 OK", "trace_id": "trc-8812"},
+    {"service": "payment-svc", "level": "ERROR", "message": "Upstream gateway timeout after 3000ms", "trace_id": "trc-8812"}
+  ]'
+```
+
+## Architecture & Capabilities
+
+- **Low Memory Footprint:** ~10 MB RAM under typical workloads; runs comfortably on a 1 vCPU / 1 GB VPS.
+- **Zstandard Chunk Compression:** 15x–25x compression ratio on structured JSON logs with sparse min/max timestamp and service indexing.
+- **Zero External Dependencies:** Single statically linked binary (~2.2 MB) with embedded web dashboard.
+- **LogSQL Query Engine:** Supports exact phrases (`"connection refused"`), field filters (`service:auth level:ERROR`), and boolean operators (`AND`, `OR`, `NOT`, `!`).
+- **PII & Secret Redaction:** Automatically masks passwords, bearer/JWT tokens, API keys, payment cards, and passport/SNILS numbers before writing to disk.
+- **Fluent Bit & Vector Compatible:** Native Loki Push API (`/loki/api/v1/push`), JSON arrays, and NDJSON (`/api/v1/logs`).
+- **Time-Series Histogram & Context:** Interactive volume/error timeline (`GET /api/v1/histogram`) and surrounding log context (`±10s`).
+- **Alerting & Retention:** Sliding-window error spike detection with Telegram Bot API notifications and automated chunk pruning (`--retention-days`).
+- **Production Ready:** HTTP Basic Auth, `X-Forwarded-For` / `X-Real-IP` support, `/health` probe, systemd unit, Nginx, and Apache configs.
+
+## Community vs Commercial Editions
+
+SiftLog Community is open source under Apache License 2.0. Commercial licenses unlock additional operational and compliance modules for teams and businesses via `--license` / `SIFTLOG_LICENSE`:
+
+| Capability | Community (OSS) | Commercial (Pro / Business / Enterprise) |
+| :--- | :---: | :---: |
+| Log Ingestion (JSON, NDJSON, Loki Push) | Yes | Yes |
+| Zstd Compression & Sparse Indexing | Yes | Yes |
+| LogSQL Search, Histogram, Context (±10s) | Yes | Yes |
+| PII & Secrets Redaction, Basic Auth, Retention | Yes | Yes |
+| Noise Deduplication (sliding-window repeat collapsing) | — | Pro+ |
+| S3-Compatible Chunk Offloading (AWS S3, MinIO, Yandex) | Yes | Yes (+ lifecycle support) |
+| Automated Root Cause Analysis (RCA) | — | Business+ |
+| Distributed Trace Waterfall (`trace_id` Gantt view) | — | Business+ |
+| Tamper-Evident SHA-256 Audit Ledger & Auto-Updater | — | Enterprise |
 
 ## Log Shipping Integrations
 
-### 1. Vector Configuration
-
-Point your Vector `loki` sink or `http` sink directly to SiftLog:
+### Vector
 
 ```toml
 # vector.toml
@@ -93,9 +89,7 @@ service = "{{ service }}"
 level = "{{ level }}"
 ```
 
-### 2. Fluent Bit Configuration
-
-Using the built-in Loki output plugin:
+### Fluent Bit
 
 ```ini
 # fluent-bit.conf
@@ -117,141 +111,63 @@ Using the built-in Loki output plugin:
     Labels       job=fluentbit
 ```
 
-Or using standard HTTP output with JSON lines:
+## Configuration
 
-```ini
-[OUTPUT]
-    Name         http
-    Match        *
-    Host         127.0.0.1
-    Port         8080
-    URI          /api/v1/logs
-    Format       json_lines
-```
-
----
+| Flag | Environment Variable | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--host` | `SIFTLOG_HOST` | `0.0.0.0` | Bind IP (`127.0.0.1` recommended behind reverse proxy) |
+| `--port` | `SIFTLOG_PORT` | `8080` | Listen port |
+| `--data-dir` | `SIFTLOG_DATA_DIR` | `./data` | Storage directory for compressed chunks |
+| `--retention-days` | `SIFTLOG_RETENTION_DAYS` | `0` | Auto-prune chunks older than N days (`0` = disabled) |
+| `--auth-user` | `SIFTLOG_AUTH_USER` | `""` | HTTP Basic Auth username (empty = open) |
+| `--auth-password` | `SIFTLOG_AUTH_PASSWORD` | `""` | HTTP Basic Auth password |
+| `--no-mask-pii` | `SIFTLOG_MASK_PII` | `enabled` | Disable automatic PII and secret redaction |
+| `--no-noise-dedup` | `SIFTLOG_NOISE_DEDUP` | `enabled` | Disable sliding-window noise deduplication |
+| `--noise-window` | `SIFTLOG_NOISE_WINDOW` | `5` | Deduplication sliding window in seconds |
+| `--s3-endpoint` | `SIFTLOG_S3_ENDPOINT` | `""` | S3 endpoint (e.g. `s3.amazonaws.com`, `storage.yandexcloud.net`) |
+| `--s3-bucket` | `SIFTLOG_S3_BUCKET` | `""` | S3 bucket name for chunk offloading |
+| `--s3-region` | `SIFTLOG_S3_REGION` | `us-east-1` | S3 region |
+| `--s3-access-key` | `SIFTLOG_S3_ACCESS_KEY` | `""` | S3 Access Key ID |
+| `--s3-secret-key` | `SIFTLOG_S3_SECRET_KEY` | `""` | S3 Secret Access Key |
+| `--s3-prefix` | `SIFTLOG_S3_PREFIX` | `siftlog` | S3 object key prefix |
+| `--license` | `SIFTLOG_LICENSE` | `""` | Commercial license file path or token |
+| `--update-url` | `SIFTLOG_UPDATE_URL` | `""` | Enterprise update server hostname |
+| `--audit-log` | `SIFTLOG_AUDIT_LOG` | `<data-dir>/audit.log` | Audit trail output path |
+| `--error-threshold` | `SIFTLOG_ERROR_THRESHOLD` | `10` | Error spike threshold per service per 60s window |
+| `--tg-token` | `SIFTLOG_TG_TOKEN` | `""` | Telegram Bot API token for alerts |
+| `--tg-chat-id` | `SIFTLOG_TG_CHAT_ID` | `""` | Telegram chat ID |
 
 ## API Reference
 
-### 1. Ingestion (`POST /api/v1/logs` or `POST /loki/api/v1/push`)
+- `POST /api/v1/logs` — Ingest single JSON object, JSON array, or NDJSON (`application/x-ndjson`).
+- `POST /loki/api/v1/push` — Loki-compatible push endpoint (returns `204 No Content`).
+- `GET /api/v1/search` — LogSQL search (`q`, `service`, `level`, `from`, `to`, `limit`).
+- `GET /api/v1/histogram` — Time-bucketed log volume and error counts (`q`, `service`, `level`, `from`, `to`, `step`).
+- `GET /api/v1/stats` — Storage size, compression ratio, known services, and recent alerts.
+- `GET /health` — Public health check endpoint (`{"status":"ok"}`).
 
-Supports single JSON objects, JSON arrays, and NDJSON (newline-delimited JSON):
+## Reverse Proxy & Systemd
 
-```bash
-curl -X POST http://127.0.0.1:8080/api/v1/logs \
-  -H "Content-Type: application/json" \
-  -d '[
-    {
-      "service": "billing",
-      "level": "INFO",
-      "message": "Payment charged successfully",
-      "amount": 49.99
-    },
-    {
-      "service": "auth",
-      "level": "ERROR",
-      "message": "LDAP connection timeout"
-    }
-  ]'
+Configuration templates are included in `deploy/`:
+- `deploy/nginx/siftlog.conf`
+- `deploy/apache/siftlog.conf`
+- `deploy/systemd/siftlog.service`
+
+## Build from Source
+
+Requires a C++20 compiler, CMake 3.25+, and Ninja. Dependencies (`zstd`, `cpp-httplib`, `nlohmann/json`) are fetched automatically via CMake `FetchContent`.
+
+```sh
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
 ```
 
-### 2. Search (`GET /api/v1/search`) with LogSQL
+Run the integration test suite:
 
-Parameters:
-- `q`: LogSQL query expression
-  - Exact phrase in quotes: `"database connection failed"`
-  - Field filters: `service:billing`, `level:ERROR`
-  - Boolean operators: `AND`, `OR`, `NOT`, `!`
-  - Example: `service:auth-service AND "token expired" NOT "healthcheck"`
-- `service`: Filter by exact service name
-- `level`: Filter by level (`INFO`, `WARN`, `ERROR`, `DEBUG`, `FATAL`)
-- `from`: Start epoch timestamp in milliseconds
-- `to`: End epoch timestamp in milliseconds
-- `limit`: Max records to return (1 to 1000, default 100)
-
-```bash
-curl "http://127.0.0.1:8080/api/v1/search?q=service:billing+AND+level:ERROR+NOT+healthcheck&limit=50"
+```sh
+python3 tests/verify_mvp.py
 ```
-
-### 3. Timeline Histogram (`GET /api/v1/histogram`)
-
-Aggregates log counts and error spikes into discrete time buckets for visual analytics.
-
-Parameters:
-- `q`, `service`, `level`, `from`, `to`: Same filters as Search API
-- `step`: Bucket size in seconds (optional, default auto)
-
-```bash
-curl "http://127.0.0.1:8080/api/v1/histogram?service=billing&step=60"
-```
-
-### 4. Server Stats (`GET /api/v1/stats`)
-
-Returns storage metrics, compression ratio, active services, and recent alert events.
-
-```bash
-curl http://127.0.0.1:8080/api/v1/stats
-```
-
-### 4. Health Check (`GET /health`)
-
-Returns `{"status":"ok"}`. Always public, used by reverse proxies and load balancers.
-
----
-
-## Reverse Proxy Setup
-
-### Nginx
-
-A complete configuration template is available in `deploy/nginx/siftlog.conf`:
-
-```nginx
-upstream siftlog_backend {
-    server 127.0.0.1:8080;
-    keepalive 32;
-}
-
-server {
-    listen 80;
-    server_name logs.example.com;
-
-    client_max_body_size 50M;
-
-    location / {
-        proxy_pass http://siftlog_backend;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Connection "";
-        proxy_buffering off;
-    }
-}
-```
-
-### Apache HTTP Server
-
-A complete virtual host configuration is available in `deploy/apache/siftlog.conf`:
-
-```apache
-<VirtualHost *:80>
-    ServerName logs.example.com
-    LimitRequestBody 52428800
-
-    ProxyPreserveHost On
-    ProxyRequests Off
-
-    RequestHeader set X-Forwarded-Proto "http"
-    RequestHeader set X-Real-IP "%{REMOTE_ADDR}s"
-
-    ProxyPass / http://127.0.0.1:8080/ retry=1 acquire=3000 timeout=60 Keepalive=On
-    ProxyPassReverse / http://127.0.0.1:8080/
-</VirtualHost>
-```
-
----
 
 ## License
 
-Apache License 2.0.
+Apache License 2.0. See [LICENSE](LICENSE).

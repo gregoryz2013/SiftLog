@@ -151,7 +151,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    std::cout << "[siftlog] version 0.4.0" << std::endl;
+    std::cout << "[siftlog] version 0.5.0" << std::endl;
     std::cout << "[siftlog] host: " << host << ", port: " << port << std::endl;
     std::cout << "[siftlog] data_dir: " << data_dir << std::endl;
     if (retention_days > 0) {
@@ -186,7 +186,7 @@ int main(int argc, char* argv[]) {
     auto storage = std::make_shared<LogStorage>(data_dir, 5000, std::chrono::milliseconds(2000), retention_days, s3_client, noise_filter, rca_engine);
     auto alert_manager = std::make_shared<AlertManager>(tg_token, tg_chat_id, error_threshold);
     auto pii_masker = std::make_shared<PiiMasker>(mask_pii);
-    auto updater = std::make_shared<EnterpriseUpdater>("0.4.0", update_url);
+    auto updater = std::make_shared<EnterpriseUpdater>("0.5.0", update_url);
     auto audit_ledger = std::make_shared<AuditLedger>(audit_log_path);
     auto server = std::make_shared<ApiServer>(storage, alert_manager, host, port, auth_user, auth_password, pii_masker, license, updater, audit_ledger);
 

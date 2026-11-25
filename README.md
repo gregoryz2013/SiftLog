@@ -40,33 +40,37 @@ curl -X POST http://127.0.0.1:8080/api/v1/logs \
   ]'
 ```
 
+## Benchmarks
+
+Measured locally using [`tests/benchmark_ingest.py`](tests/benchmark_ingest.py) against a single `siftlog` instance (`1.21M` structured JSON log events ingested over HTTP keep-alive):
+
+| Concurrency | Batch Size | Throughput |
+| :--- | :---: | :--- |
+| 1 worker | 1,000 | **25,590 logs/sec** (25.6k/s) |
+| 4 workers | 1,000 | **64,796 logs/sec** (64.8k/s) |
+| 8 workers | 2,500 | **110,582 logs/sec** (110.6k/s) |
+
+**Post-benchmark footprint (1,213,600 logs):**
+- **Raw JSON size:** 495.3 MB → **Compressed on disk:** 2.80 MB (`177.2x` on synthetic template data; typical production JSON logs compress `15x–25x`)
+- **Process RSS / Working Set:** ~37.1 MB at peak (~10 MB idle)
+
+Reproduce on your hardware:
+```sh
+python3 tests/benchmark_ingest.py
+```
+
 ## Architecture & Capabilities
 
-- **Low Memory Footprint:** ~10 MB RAM under typical workloads; runs comfortably on a 1 vCPU / 1 GB VPS.
-- **Zstandard Chunk Compression:** 15x–25x compression ratio on structured JSON logs with sparse min/max timestamp and service indexing.
+- **Low Memory Footprint:** ~10 MB RAM idle, ~37 MB under 110k logs/sec load; runs comfortably on a 1 vCPU / 1 GB VPS.
+- **Zstandard Chunk Compression:** 15x–25x compression ratio on typical structured JSON logs with sparse min/max timestamp and service indexing.
 - **Zero External Dependencies:** Single statically linked binary (~2.2 MB) with embedded web dashboard.
 - **LogSQL Query Engine:** Supports exact phrases (`"connection refused"`), field filters (`service:auth level:ERROR`), and boolean operators (`AND`, `OR`, `NOT`, `!`).
+- **Noise Deduplication:** Sliding-window aggregation collapsing repeated identical logs into single entries with `repeat_count` counters.
+- **Distributed Trace Waterfall & RCA:** Log-based trace stitching (`trace_id`) with Gantt waterfall view and automated root-cause cascade detection.
 - **PII & Secret Redaction:** Automatically masks passwords, bearer/JWT tokens, API keys, payment cards, and passport/SNILS numbers before writing to disk.
 - **Fluent Bit & Vector Compatible:** Native Loki Push API (`/loki/api/v1/push`), JSON arrays, and NDJSON (`/api/v1/logs`).
-- **Time-Series Histogram & Context:** Interactive volume/error timeline (`GET /api/v1/histogram`) and surrounding log context (`±10s`).
-- **Alerting & Retention:** Sliding-window error spike detection with Telegram Bot API notifications and automated chunk pruning (`--retention-days`).
-- **Production Ready:** HTTP Basic Auth, `X-Forwarded-For` / `X-Real-IP` support, `/health` probe, systemd unit, Nginx, and Apache configs.
-
-## Community vs Commercial Editions
-
-SiftLog Community is open source under Apache License 2.0. Commercial licenses unlock additional operational and compliance modules for teams and businesses via `--license` / `SIFTLOG_LICENSE`:
-
-| Capability | Community (OSS) | Commercial (Pro / Business / Enterprise) |
-| :--- | :---: | :---: |
-| Log Ingestion (JSON, NDJSON, Loki Push) | Yes | Yes |
-| Zstd Compression & Sparse Indexing | Yes | Yes |
-| LogSQL Search, Histogram, Context (±10s) | Yes | Yes |
-| PII & Secrets Redaction, Basic Auth, Retention | Yes | Yes |
-| Noise Deduplication (sliding-window repeat collapsing) | — | Pro+ |
-| S3-Compatible Chunk Offloading (AWS S3, MinIO, Yandex) | Yes | Yes (+ lifecycle support) |
-| Automated Root Cause Analysis (RCA) | — | Business+ |
-| Distributed Trace Waterfall (`trace_id` Gantt view) | — | Business+ |
-| Tamper-Evident SHA-256 Audit Ledger & Auto-Updater | — | Enterprise |
+- **S3 Offloading & Retention:** Non-blocking chunk sync to S3-compatible storage (AWS S3, MinIO, Yandex Cloud) and automated pruning (`--retention-days`).
+- **Alerting & Security:** Sliding-window error spike detection with Telegram Bot API notifications, HTTP Basic Auth, `X-Forwarded-For` / `X-Real-IP` support, `/health` probe, and SHA-256 hash-chained audit trail.
 
 ## Log Shipping Integrations
 

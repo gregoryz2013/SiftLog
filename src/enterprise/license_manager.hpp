@@ -21,7 +21,10 @@ struct EnterpriseLicense {
     }
 
     bool has_feature(std::string_view feature) const noexcept {
-        if (!is_active()) return false;
+        // Community/Preview mode: all core observability features enabled out of the box.
+        if (!is_active()) {
+            return feature == "finops_dedup" || feature == "rca" || feature == "waterfall" || feature == "audit_ledger";
+        }
         std::string p = plan;
         for (auto& c : p) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 

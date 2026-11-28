@@ -12,7 +12,84 @@ std::string LogSqlParser::to_lower(std::string_view str) {
 }
 
 LogSqlParser::LogSqlParser(std::string_view query_str) {
-    tokenize(query_str);
+    // Split on unquoted '|' for aggregation pipes (e.g. `level:ERROR | stats count() by service`)
+    size_t pipe_pos = std::string_view::npos;
+    char in_quote = 0;
+    for (size_t i = 0; i < query_str.size(); ++i) {
+        char c = query_str[i];
+        if (in_quote) {
+            if (c == in_quote) in_quote = 0;
+        } else if (c == '"' || c == '\'') {
+            in_quote = c;
+        } else if (c == '|') {
+            pipe_pos = i;
+            break;
+        }
+    }
+
+    if (pipe_pos != std::string_view::npos) {
+        tokenize(query_str.substr(0, pipe_pos));
+        parse_pipe(query_str.substr(pipe_pos + 1));
+    } else {
+        tokenize(query_str);
+    }
+}
+
+void LogSqlParser::parse_pipe(std::string_view pipe_str) {
+    std::string lower = to_lower(pipe_str);
+    std::vector<std::string> parts;
+    size_t i = 0;
+    while (i < lower.size()) {
+        while (i < lower.size() && std::isspace(static_cast<unsigned char>(lower[i]))) ++i;
+        size_t s = i;
+        while (i < lower.size() && !std::isspace(static_cast<unsigned char>(lower[i]))) ++i;
+        if (i > s) parts.push_back(lower.substr(s, i - s));
+    }
+    if (parts.empty()) return;
+
+    if (parts[0] == "stats") {
+        pipe_.kind = PipeSpec::Kind::STATS_COUNT;
+        pipe_.group_by = "service";
+        for (size_t idx = 1; idx + 1 < parts.size(); ++idx) {
+            if (parts[idx] == "by") {
+                pipe_.group_by = parts[idx + 1];
+                break;
+            }
+        }
+    } else if (parts[0] == "top") {
+        pipe_.kind = PipeSpec::Kind::TOP;
+        pipe_.top_n = 10;
+        pipe_.group_by = "message";
+        if (parts.size() >= 2) {
+            try {
+                size_t n = std::stoull(parts[1]);
+                pipe_.top_n = std::clamp<size_t>(n, 1, 100);
+                if (parts.size() >= 3) pipe_.group_by = parts[2];
+            } catch (...) {
+                pipe_.group_by = parts[1];
+            }
+        }
+    }
+}
+
+bool LogSqlParser::wildcard_match(std::string_view text, std::string_view pat) noexcept {
+    size_t ti = 0, pi = 0, star = std::string_view::npos, match_ti = 0;
+    while (ti < text.size()) {
+        if (pi < pat.size() && (pat[pi] == text[ti] || pat[pi] == '?')) {
+            ++ti;
+            ++pi;
+        } else if (pi < pat.size() && pat[pi] == '*') {
+            star = pi++;
+            match_ti = ti;
+        } else if (star != std::string_view::npos) {
+            pi = star + 1;
+            ti = ++match_ti;
+        } else {
+            return false;
+        }
+    }
+    while (pi < pat.size() && pat[pi] == '*') ++pi;
+    return pi == pat.size();
 }
 
 void LogSqlParser::tokenize(std::string_view query_str) {
@@ -86,6 +163,9 @@ bool LogSqlParser::matches(const LogEntry& entry) const {
     auto eval_token = [&](const QueryToken& t) -> bool {
         if (t.type == TokenType::FIELD_FILTER) {
             if (t.field == "service" || t.field == "app") {
+                if (t.value.find('*') != std::string::npos || t.value.find('?') != std::string::npos) {
+                    return wildcard_match(lower_svc, t.value);
+                }
                 return lower_svc == t.value || lower_svc.find(t.value) != std::string::npos;
             }
             if (t.field == "level" || t.field == "lvl") {
@@ -99,6 +179,9 @@ bool LogSqlParser::matches(const LogEntry& entry) const {
                    lower_msg.find(t.value) != std::string::npos;
         }
         if (t.type == TokenType::STRING) {
+            if (t.value.find('*') != std::string::npos || t.value.find('?') != std::string::npos) {
+                return wildcard_match(lower_msg, t.value) || wildcard_match(lower_raw, t.value);
+            }
             return lower_msg.find(t.value) != std::string::npos || lower_raw.find(t.value) != std::string::npos;
         }
         return true;
@@ -169,9 +252,10 @@ std::vector<std::string> LogSqlParser::required_terms() const {
             negate_next = false;
             continue;
         }
-        if (t.type == TokenType::STRING && t.value.size() >= 2) {
+        if (t.type == TokenType::STRING && t.value.size() >= 2 && t.value.find('*') == std::string::npos) {
             terms.push_back(t.value);
-        } else if (t.type == TokenType::FIELD_FILTER && t.field != "level" && t.field != "lvl" && t.value.size() >= 2) {
+        } else if (t.type == TokenType::FIELD_FILTER && t.field != "level" && t.field != "lvl" &&
+                   t.value.size() >= 2 && t.value.find('*') == std::string::npos) {
             terms.push_back(t.value);
         }
     }

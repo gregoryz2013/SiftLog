@@ -463,6 +463,16 @@ std::vector<LogEntry> LogStorage::search_chunk_file(const ChunkMeta& meta, const
         return matches;
     }
 
+    std::vector<std::string> req_terms = parser ? parser->required_terms() : std::vector<std::string>{};
+    auto ci_contains = [](std::string_view hay, std::string_view needle) -> bool {
+        if (needle.empty()) return true;
+        auto it = std::search(hay.begin(), hay.end(), needle.begin(), needle.end(),
+            [](char a, char b) {
+                return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+            });
+        return it != hay.end();
+    };
+
     std::string_view sv(decompressed.data(), d_size);
     size_t start = 0;
     while (start < sv.size()) {
@@ -471,6 +481,18 @@ std::vector<LogEntry> LogStorage::search_chunk_file(const ChunkMeta& meta, const
         std::string_view line = sv.substr(start, end - start);
         start = end + 1;
         if (line.empty()) continue;
+
+        // Zero-allocation fast line pre-filter before expensive JSON parsing
+        if (!params.service.empty() && line.find(params.service) == std::string_view::npos) continue;
+        if (!params.level.empty() && !ci_contains(line, params.level)) continue;
+        bool terms_ok = true;
+        for (const auto& t : req_terms) {
+            if (t.find('*') == std::string::npos && !ci_contains(line, t)) {
+                terms_ok = false;
+                break;
+            }
+        }
+        if (!terms_ok) continue;
 
         try {
             nlohmann::json j = nlohmann::json::parse(line);

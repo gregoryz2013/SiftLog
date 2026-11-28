@@ -504,14 +504,25 @@ void ApiServer::setup_routes() {
             std::string lvl = extract_label("level");
             if (!lvl.empty()) params.level = LogEntry::normalize_level(lvl);
 
+            std::string lql_terms;
             auto pipe_pos = lql.find("|=");
             if (pipe_pos != std::string::npos) {
                 auto q1 = lql.find('"', pipe_pos);
                 auto q2 = (q1 != std::string::npos) ? lql.find('"', q1 + 1) : std::string::npos;
                 if (q1 != std::string::npos && q2 != std::string::npos) {
-                    params.query = lql.substr(q1 + 1, q2 - q1 - 1);
+                    lql_terms = "\"" + lql.substr(q1 + 1, q2 - q1 - 1) + "\"";
                 }
             }
+            auto neg_pos = lql.find("!=");
+            if (neg_pos != std::string::npos) {
+                auto q1 = lql.find('"', neg_pos);
+                auto q2 = (q1 != std::string::npos) ? lql.find('"', q1 + 1) : std::string::npos;
+                if (q1 != std::string::npos && q2 != std::string::npos) {
+                    if (!lql_terms.empty()) lql_terms += " ";
+                    lql_terms += "NOT \"" + lql.substr(q1 + 1, q2 - q1 - 1) + "\"";
+                }
+            }
+            if (!lql_terms.empty()) params.query = lql_terms;
         }
 
         SearchResult sr = storage_->search(params);
@@ -580,6 +591,12 @@ void ApiServer::setup_routes() {
             } catch (...) {}
         }
 
+        size_t requested_limit = params.limit;
+        LogSqlParser qparser(params.query);
+        if (qparser.has_pipe()) {
+            params.limit = 10000;
+        }
+
         SearchResult search_result = storage_->search(params);
 
         std::vector<LogEntry> merged_logs = std::move(search_result.logs);
@@ -611,8 +628,34 @@ void ApiServer::setup_routes() {
             std::sort(merged_logs.begin(), merged_logs.end(), [](const LogEntry& a, const LogEntry& b) {
                 return a.timestamp > b.timestamp;
             });
-            if (merged_logs.size() > params.limit) {
-                merged_logs.resize(params.limit);
+            if (!qparser.has_pipe() && merged_logs.size() > requested_limit) {
+                merged_logs.resize(requested_limit);
+            }
+        }
+
+        nlohmann::json aggregations_json = nlohmann::json::array();
+        if (qparser.has_pipe()) {
+            std::unordered_map<std::string, size_t> groups;
+            const auto& pipe = qparser.pipe();
+            for (const auto& log : merged_logs) {
+                std::string k;
+                if (pipe.group_by == "service" || pipe.group_by == "app") k = log.service;
+                else if (pipe.group_by == "level" || pipe.group_by == "lvl") k = log.level;
+                else if (pipe.group_by == "trace_id") k = log.trace_id.empty() ? "(none)" : log.trace_id;
+                else k = log.message;
+                groups[k] += log.repeat_count;
+            }
+            std::vector<std::pair<std::string, size_t>> sorted(groups.begin(), groups.end());
+            std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) {
+                return a.second > b.second;
+            });
+            size_t max_rows = (pipe.kind == PipeSpec::Kind::TOP) ? pipe.top_n : 100;
+            if (sorted.size() > max_rows) sorted.resize(max_rows);
+            for (const auto& [k, cnt] : sorted) {
+                aggregations_json.push_back({{"key", k}, {"count", cnt}});
+            }
+            if (merged_logs.size() > requested_limit) {
+                merged_logs.resize(requested_limit);
             }
         }
 
@@ -628,6 +671,13 @@ void ApiServer::setup_routes() {
             {"duration_ms", search_result.duration_ms},
             {"logs", logs_json}
         };
+        if (qparser.has_pipe()) {
+            response["pipe"] = {
+                {"kind", qparser.pipe().kind == PipeSpec::Kind::TOP ? "top" : "stats"},
+                {"group_by", qparser.pipe().group_by}
+            };
+            response["aggregations"] = aggregations_json;
+        }
 
         if (audit_ledger_) {
             audit_ledger_->record_event(get_client_ip(req), "SEARCH", "q=" + params.query + " service=" + params.service + " matched=" + std::to_string(search_result.total_matched));

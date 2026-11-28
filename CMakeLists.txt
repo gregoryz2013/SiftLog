@@ -8,7 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(MSVC)
     add_compile_options(/O2 /W4)
 else()
-    add_compile_options(-O3 -Wall -Wextra -Wno-unused-parameter)
+    add_compile_options(-O3 -Wall -Wextra -Wno-unused-parameter -D_GLIBCXX_ASSERTIONS)
 endif()
 
 find_package(Threads REQUIRED)

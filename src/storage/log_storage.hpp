@@ -129,7 +129,7 @@ private:
     std::atomic<size_t> total_logs_ingested_{0};
     std::atomic<size_t> total_compressed_bytes_{0};
     std::atomic<size_t> total_uncompressed_bytes_{0};
-    std::chrono::steady_clock::time_point last_retention_check_;
     std::shared_ptr<NoiseFilter> noise_filter_;
     std::shared_ptr<RcaEngine> rca_engine_;
+    std::chrono::steady_clock::time_point last_retention_check_;
 };

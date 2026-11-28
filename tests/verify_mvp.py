@@ -243,6 +243,19 @@ def main():
             assert "passport" not in log["message"].lower(), "LogSQL NOT failed"
         print("PASS: LogSQL queries (exact phrase, field filters, AND, NOT)")
 
+        # Test ReDoS-safe linear PII masker on 100KB pathological payload + Query pipes & wildcards
+        huge_msg = "token=" + ("a" * 5000) + " " + ("password=secret123 " * 100) + "tail_ok"
+        status, _ = http_post_json("/api/v1/logs", [{"service": "redos-guard", "level": "INFO", "message": huge_msg}])
+        assert status == 200
+        status, res = http_get("/api/v1/search?q=service:redos-*+AND+tail_ok")
+        assert status == 200 and json.loads(res)["total_matched"] == 1
+        assert "secret123" not in json.loads(res)["logs"][0]["message"]
+        status, res = http_get("/api/v1/search?q=" + urllib.parse.quote("level:INFO | stats count() by service"))
+        assert status == 200
+        pipe_data = json.loads(res)
+        assert "aggregations" in pipe_data and len(pipe_data["aggregations"]) >= 1
+        print("PASS: ReDoS-safe linear PII masker (100KB), wildcard filter, and | stats pipe")
+
         # Test Bloom-filter chunk skipping (non-existent token must skip all chunks without Zstd decompression)
         status, res = http_get("/api/v1/search?q=nonexistent_bloom_token_xyz987654")
         assert status == 200

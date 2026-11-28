@@ -1023,7 +1023,7 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       <!-- Query & Filter Toolbar -->
       <div class="query-panel">
         <div class="search-input-row">
-          <input type="text" id="query-input" class="search-input" placeholder='Query: "exact phrase" AND service:auth level:ERROR NOT health (Press / to focus)' onkeydown="if(event.key==='Enter') executeSearch()">
+          <input type="text" id="query-input" class="search-input" placeholder='Query: service:auth* AND "timeout" | stats count() by service (Press / to focus)' onkeydown="if(event.key==='Enter') executeSearch()">
           <button class="btn" onclick="executeSearch()">Search</button>
           <button class="search-btn-clear" onclick="resetFilters()">Reset</button>
         </div>
@@ -1739,6 +1739,34 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       document.getElementById('cnt-debug').innerText = cDbg;
 
       const tbody = document.getElementById('logs-tbody');
+      if (Array.isArray(data.aggregations)) {
+        if (data.aggregations.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-dim);">No aggregation groups matched.</td></tr>';
+          return;
+        }
+        const maxCnt = Math.max(1, ...data.aggregations.map(a => a.count || 0));
+        const grpField = (data.pipe && data.pipe.group_by) ? data.pipe.group_by : 'group';
+        let aggHtml = '';
+        data.aggregations.forEach((agg) => {
+          const pct = Math.round((agg.count / maxCnt) * 100);
+          aggHtml += `
+            <tr class="log-row">
+              <td class="cell-caret"></td>
+              <td class="cell-time" style="color:var(--color-info); font-weight:600;">${agg.count.toLocaleString()}</td>
+              <td class="cell-lvl"><span class="badge badge-INFO">${escapeHtml(grpField.toUpperCase())}</span></td>
+              <td class="cell-svc" style="color:#fff;">${escapeHtml(agg.key)}</td>
+              <td class="cell-msg">
+                <div style="background:var(--bg); border:1px solid var(--border); height:10px; border-radius:2px; overflow:hidden; margin-top:4px; max-width:420px;">
+                  <div style="background:var(--accent); height:100%; width:${pct}%;"></div>
+                </div>
+              </td>
+            </tr>
+          `;
+        });
+        tbody.innerHTML = aggHtml;
+        return;
+      }
+
       if (currentLogs.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:3rem; color:var(--text-dim);">No logs match this search criteria.</td></tr>';
         return;

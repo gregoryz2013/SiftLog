@@ -2,9 +2,9 @@
 
 #include <string>
 #include <string_view>
-#include <regex>
 #include "storage/log_entry.hpp"
 
+// Linear-time O(N), stack-safe PII & secret redactor (immune to regex backtracking / ReDoS)
 class PiiMasker {
 public:
     explicit PiiMasker(bool enabled = true);
@@ -12,15 +12,9 @@ public:
     bool is_enabled() const noexcept { return enabled_; }
     void set_enabled(bool enabled) noexcept { enabled_ = enabled; }
 
-    std::string mask_string(const std::string& input) const;
+    std::string mask_string(std::string_view input) const;
     void mask_entry(LogEntry& entry) const;
 
 private:
     bool enabled_;
-    std::regex token_regex_;
-    std::regex jwt_regex_;
-    std::regex secret_regex_;
-    std::regex card_regex_;
-    std::regex passport_regex_;
-    std::regex snils_regex_;
 };

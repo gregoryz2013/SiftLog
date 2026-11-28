@@ -6,7 +6,7 @@
 
 Single-binary C++20 log ingestion and search engine. Stores logs in Zstandard-compressed chunks with sparse metadata indexing and per-chunk Bloom filters, keeping idle RAM usage around 10 MB without inverted full-text indexes or JVM overhead.
 
-Includes an embedded web UI, structured query parser, automatic PII/secret redaction, crash-safe WAL ingestion, and drop-in compatibility with **Vector**, **Fluent Bit**, and **Promtail** (`/loki/api/v1/push` and NDJSON).
+Includes an embedded web UI, structured query parser, automatic PII/secret redaction, crash-safe WAL ingestion, and drop-in compatibility with **Grafana** (Loki data source), **Vector**, **Fluent Bit**, and **Promtail**.
 
 ![SiftLog Web Dashboard](docs/dashboard.png)
 
@@ -163,10 +163,13 @@ level = "{{ level }}"
 
 - `POST /api/v1/logs` — Ingest single JSON object, JSON array, or NDJSON (`application/x-ndjson`).
 - `POST /loki/api/v1/push` — Loki-compatible push endpoint (returns `204 No Content`).
+- `GET /loki/api/v1/query_range` / `GET /loki/api/v1/query` — Grafana Loki-compatible log query API.
+- `GET /loki/api/v1/labels` / `GET /loki/api/v1/label/{name}/values` — Label discovery for Grafana.
 - `GET /api/v1/search` — Query search (`q`, `service`, `level`, `from`, `to`, `limit`).
 - `GET /api/v1/histogram` — Time-bucketed log volume and error counts (`q`, `service`, `level`, `from`, `to`, `step`).
+- `GET /api/v1/trace` — Reconstruct distributed trace waterfall by `trace_id`.
 - `GET /api/v1/stats` — Storage size, compression ratio, known services, and recent alerts.
-- `GET /health` — Public health check endpoint (`{"status":"ok"}`).
+- `GET /health` / `GET /ready` — Public health and readiness probe endpoints.
 
 ## Reverse Proxy & Systemd
 

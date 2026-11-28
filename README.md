@@ -29,6 +29,18 @@ docker compose up -d
 
 Open `http://127.0.0.1:8080` in your browser.
 
+### Production / Multi-Node Quick Start
+
+For mid-sized production servers (e.g. allocating 1 GB hot RAM cache for sub-10ms searches across recent logs, or federating queries across nodes):
+
+```sh
+# Single production server with 1 GB hot chunk LRU cache
+siftlog --host 127.0.0.1 --port 8080 --data-dir /var/lib/siftlog --cache-mb 1024 --retention-days 30
+
+# Federated cluster node querying peer nodes + async backup replication
+siftlog --port 8080 --cache-mb 1024 --peers http://node2:8080,http://node3:8080 --replicate-to http://backup:8080
+```
+
 ### Send Test Logs
 
 ```sh
@@ -174,7 +186,10 @@ level = "{{ level }}"
 - `POST /loki/api/v1/push` — Loki-compatible push endpoint (returns `204 No Content`).
 - `GET /loki/api/v1/query_range` / `GET /loki/api/v1/query` — Grafana Loki-compatible log query API.
 - `GET /loki/api/v1/labels` / `GET /loki/api/v1/label/{name}/values` — Label discovery for Grafana.
-- `GET /api/v1/search` — Query search (`q`, `service`, `level`, `from`, `to`, `limit`).
+- `GET /api/v1/search` — Query search (`q`, `service`, `level`, `from`, `to`, `limit`), supporting wildcards and pipes:
+  - `q=service:auth-* AND "timeout"`
+  - `q=level:ERROR | stats count() by service`
+  - `q=level:ERROR | top 10 message`
 - `GET /api/v1/analytics` — Service volume breakdown, error rate %, and top recurring errors.
 - `GET /metrics` — Prometheus metrics exposition endpoint.
 - `GET /api/v1/histogram` — Time-bucketed log volume and error counts (`q`, `service`, `level`, `from`, `to`, `step`).

@@ -4,9 +4,9 @@
 [![Release](https://img.shields.io/github/v/release/gregoryz2013/SiftLog?display_name=tag)](https://github.com/gregoryz2013/SiftLog/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Single-binary C++20 log ingestion and search engine. Stores logs in Zstandard-compressed chunks with sparse metadata indexing, keeping idle RAM usage around 10 MB without inverted full-text indexes or JVM overhead.
+Single-binary C++20 log ingestion and search engine. Stores logs in Zstandard-compressed chunks with sparse metadata indexing and per-chunk Bloom filters, keeping idle RAM usage around 10 MB without inverted full-text indexes or JVM overhead.
 
-Includes an embedded web UI, LogSQL query parser, automatic PII/secret redaction, and drop-in compatibility with **Vector**, **Fluent Bit**, and **Promtail** (`/loki/api/v1/push` and NDJSON).
+Includes an embedded web UI, structured query parser, automatic PII/secret redaction, crash-safe WAL ingestion, and drop-in compatibility with **Vector**, **Fluent Bit**, and **Promtail** (`/loki/api/v1/push` and NDJSON).
 
 ![SiftLog Web Dashboard](docs/dashboard.png)
 
@@ -42,7 +42,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/logs \
 
 ## Benchmarks
 
-Measured locally using [`tests/benchmark_ingest.py`](tests/benchmark_ingest.py) against a single `siftlog` instance (`1.21M` structured JSON log events ingested over HTTP keep-alive):
+Measured locally using [`tests/benchmark_ingest.py`](tests/benchmark_ingest.py) against a single `siftlog` instance (`1.21M` JSON log events ingested over HTTP keep-alive):
 
 | Concurrency | Batch Size | Throughput |
 | :--- | :---: | :--- |
@@ -50,28 +50,38 @@ Measured locally using [`tests/benchmark_ingest.py`](tests/benchmark_ingest.py) 
 | 4 workers | 1,000 | **64,796 logs/sec** (64.8k/s) |
 | 8 workers | 2,500 | **110,582 logs/sec** (110.6k/s) |
 
-**Post-benchmark footprint (1,213,600 logs):**
-- **Raw JSON size:** 495.3 MB → **Compressed on disk:** 2.80 MB (`177.2x` on synthetic template data; typical production JSON logs compress `15x–25x`)
-- **Process RSS / Working Set:** ~37.1 MB at peak (~10 MB idle)
+- **Process Memory:** ~10 MB RAM idle, ~37.1 MB peak during 110k logs/sec ingestion.
+- **Compression:** Typically **15x–25x** on real-world production JSON logs (e.g., Nginx, Kubernetes, application logs).
 
-Reproduce on your hardware:
+Reproduce ingestion throughput on your hardware:
 ```sh
 python3 tests/benchmark_ingest.py
 ```
 
 ## Architecture & Capabilities
 
-- **Multi-Terabyte Scale (Up to 2.5 TB+ Raw Logs):** Each compressed chunk stores a sparse index (`min_ts`, `max_ts`, `services`, `levels`) plus an **8192-bit per-chunk Bloom filter** (`1 KB`), skipping non-matching chunks without Zstd decompression. Bounded worker pools keep search memory predictable even across hundreds of thousands of chunks.
-- **Low Memory Footprint:** ~10 MB RAM idle, ~37 MB under 110k logs/sec load; runs comfortably on a 1 vCPU / 1 GB VPS (2–4 GB RAM recommended for multi-terabyte archives).
-- **Zstandard Chunk Compression:** 15x–25x compression ratio on typical structured JSON logs (2.5 TB raw → ~100–160 GB on disk).
+- **Multi-Terabyte Scale (Up to 2.5 TB+ Raw Logs):** Each compressed chunk stores a sparse index (`min_ts`, `max_ts`, `services`, `levels`) plus an **8192-bit per-chunk Bloom filter** (`1 KB`), skipping non-matching chunks without Zstd decompression. Bounded worker pools keep search memory predictable across hundreds of thousands of chunks.
+- **Low Memory Footprint:** ~10 MB RAM idle, ~37 MB under load; runs comfortably on a 1 vCPU / 1 GB VPS (2–4 GB RAM recommended for multi-terabyte archives).
 - **Zero External Dependencies:** Single statically linked binary (~2.2 MB) with embedded web dashboard.
-- **LogSQL Query Engine:** Supports exact phrases (`"connection refused"`), field filters (`service:auth level:ERROR`), and boolean operators (`AND`, `OR`, `NOT`, `!`).
+- **Structured Query Syntax:** Supports exact phrases (`"connection refused"`), field filters (`service:auth level:ERROR`), and boolean operators (`AND`, `OR`, `NOT`, `!`). All JSON tokens (including nested fields) are indexed in per-chunk Bloom filters for fast chunk pruning.
 - **Noise Deduplication:** Sliding-window aggregation collapsing repeated identical logs into single entries with `repeat_count` counters.
 - **Distributed Trace Waterfall & RCA:** Log-based trace stitching (`trace_id`) with Gantt waterfall view and automated root-cause cascade detection.
 - **PII & Secret Redaction:** Automatically masks passwords, bearer/JWT tokens, API keys, payment cards, and passport/SNILS numbers before writing to disk.
 - **Fluent Bit & Vector Compatible:** Native Loki Push API (`/loki/api/v1/push`), JSON arrays, and NDJSON (`/api/v1/logs`).
 - **S3 Offloading & Retention:** Non-blocking chunk sync to S3-compatible storage (AWS S3, MinIO, Yandex Cloud) and automated pruning (`--retention-days`).
 - **Alerting & Security:** Sliding-window error spike detection with Telegram Bot API notifications, HTTP Basic Auth, `X-Forwarded-For` / `X-Real-IP` support, `/health` probe, and SHA-256 hash-chained audit trail.
+
+## Durability & Crash Safety
+
+- **Write-Ahead Log (WAL):** Incoming log batches are appended and flushed to `<data-dir>/wal.log` before ingestion returns `200 OK`.
+- **Atomic Chunk Commits:** Background flushes rotate `wal.log` → `wal.flushing`, write compressed data to `.zst.tmp` and metadata to `.meta.tmp`, atomically `rename` them into place, and only then delete `wal.flushing`.
+- **Startup Recovery:** On startup, any leftover `.tmp` files are cleaned up and any uncommitted records in `wal.flushing` or `wal.log` are automatically replayed into compressed chunks.
+
+## Known Limitations & Trade-offs
+
+- **Single-node architecture:** SiftLog does not currently support multi-node clustering or automatic replication. For high availability, run behind a reverse proxy with disk snapshots or S3 offloading.
+- **Query language scope:** The query parser supports boolean text search (`AND`, `OR`, `NOT`), exact phrases, and `key:value` filters. It does not yet support aggregation pipelines (`stats`, `count by`, `rate`, regex extraction on the fly) like Grafana Loki or VictoriaLogs.
+- **Wide-range scans:** Bloom filters skip irrelevant chunks for specific tokens/IDs, but queries without selective terms (e.g., scanning all `INFO` logs across 100 GB of matching chunks) still decompress and scan matching Zstd chunks.
 
 ## Log Shipping Integrations
 
@@ -135,8 +145,6 @@ level = "{{ level }}"
 | `--s3-access-key` | `SIFTLOG_S3_ACCESS_KEY` | `""` | S3 Access Key ID |
 | `--s3-secret-key` | `SIFTLOG_S3_SECRET_KEY` | `""` | S3 Secret Access Key |
 | `--s3-prefix` | `SIFTLOG_S3_PREFIX` | `siftlog` | S3 object key prefix |
-| `--license` | `SIFTLOG_LICENSE` | `""` | Commercial license file path or token |
-| `--update-url` | `SIFTLOG_UPDATE_URL` | `""` | Enterprise update server hostname |
 | `--audit-log` | `SIFTLOG_AUDIT_LOG` | `<data-dir>/audit.log` | Audit trail output path |
 | `--error-threshold` | `SIFTLOG_ERROR_THRESHOLD` | `10` | Error spike threshold per service per 60s window |
 | `--tg-token` | `SIFTLOG_TG_TOKEN` | `""` | Telegram Bot API token for alerts |
@@ -146,7 +154,7 @@ level = "{{ level }}"
 
 - `POST /api/v1/logs` — Ingest single JSON object, JSON array, or NDJSON (`application/x-ndjson`).
 - `POST /loki/api/v1/push` — Loki-compatible push endpoint (returns `204 No Content`).
-- `GET /api/v1/search` — LogSQL search (`q`, `service`, `level`, `from`, `to`, `limit`).
+- `GET /api/v1/search` — Query search (`q`, `service`, `level`, `from`, `to`, `limit`).
 - `GET /api/v1/histogram` — Time-bucketed log volume and error counts (`q`, `service`, `level`, `from`, `to`, `step`).
 - `GET /api/v1/stats` — Storage size, compression ratio, known services, and recent alerts.
 - `GET /health` — Public health check endpoint (`{"status":"ok"}`).

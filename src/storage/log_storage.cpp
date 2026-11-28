@@ -19,6 +19,8 @@ LogStorage::LogStorage(std::string data_dir,
                        std::shared_ptr<NoiseFilter> noise_filter,
                        std::shared_ptr<RcaEngine> rca_engine)
     : data_dir_(std::move(data_dir)),
+      wal_path_((fs::path(data_dir_) / "wal.log").string()),
+      wal_flushing_path_((fs::path(data_dir_) / "wal.flushing").string()),
       max_batch_size_(max_batch_size),
       flush_interval_(flush_interval),
       retention_days_(retention_days),
@@ -72,6 +74,13 @@ void LogStorage::append_batch(const std::vector<LogEntry>& entries) {
 
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
+        std::ofstream wal(wal_path_, std::ios::app | std::ios::binary);
+        if (wal.is_open()) {
+            for (const auto& e : processed) {
+                wal << e.to_json().dump() << '\n';
+            }
+            wal.flush();
+        }
         current_batch_.insert(current_batch_.end(), processed.begin(), processed.end());
         total_logs_ingested_.fetch_add(processed.size(), std::memory_order_relaxed);
     }
@@ -88,14 +97,20 @@ void LogStorage::append_batch(const std::vector<LogEntry>& entries) {
 
 void LogStorage::flush() {
     std::vector<LogEntry> batch_to_flush;
+    std::string rotated_wal;
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
         if (!current_batch_.empty()) {
             batch_to_flush.swap(current_batch_);
+            std::error_code ec;
+            if (fs::exists(wal_path_, ec)) {
+                fs::rename(wal_path_, wal_flushing_path_, ec);
+                if (!ec) rotated_wal = wal_flushing_path_;
+            }
         }
     }
     if (!batch_to_flush.empty()) {
-        flush_batch_to_disk(batch_to_flush);
+        flush_batch_to_disk(batch_to_flush, rotated_wal);
     }
 }
 
@@ -148,6 +163,7 @@ void LogStorage::enforce_retention() {
 void LogStorage::background_flusher() {
     while (running_) {
         std::vector<LogEntry> batch_to_flush;
+        std::string rotated_wal;
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
             cv_.wait_for(lock, flush_interval_, [&] {
@@ -156,13 +172,18 @@ void LogStorage::background_flusher() {
 
             if (!current_batch_.empty()) {
                 batch_to_flush.swap(current_batch_);
+                std::error_code ec;
+                if (fs::exists(wal_path_, ec)) {
+                    fs::rename(wal_path_, wal_flushing_path_, ec);
+                    if (!ec) rotated_wal = wal_flushing_path_;
+                }
             } else if (!running_) {
                 break;
             }
         }
 
         if (!batch_to_flush.empty()) {
-            flush_batch_to_disk(batch_to_flush);
+            flush_batch_to_disk(batch_to_flush, rotated_wal);
         }
 
         // Check retention policy periodically (every 60s)
@@ -188,7 +209,7 @@ std::string LogStorage::get_date_string(int64_t ts_ms) {
     return ss.str();
 }
 
-void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch) {
+void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch, const std::string& wal_flushing_path) {
     if (batch.empty()) return;
 
     int64_t min_ts = batch.front().timestamp;
@@ -242,15 +263,30 @@ void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch) {
     int64_t now_ts = LogEntry::now_ms();
     std::string chunk_id = "chunk_" + std::to_string(now_ts) + "_" + std::to_string(min_ts);
     fs::path chunk_path = target_dir / (chunk_id + ".zst");
+    fs::path chunk_tmp_path = target_dir / (chunk_id + ".zst.tmp");
     fs::path meta_path = target_dir / (chunk_id + ".meta");
+    fs::path meta_tmp_path = target_dir / (chunk_id + ".meta.tmp");
 
     {
-        std::ofstream zst_file(chunk_path, std::ios::binary);
+        std::ofstream zst_file(chunk_tmp_path, std::ios::binary);
         if (!zst_file) {
-            std::cerr << "[storage] failed to open chunk file for writing: " << chunk_path << std::endl;
+            std::cerr << "[storage] failed to open chunk file for writing: " << chunk_tmp_path << std::endl;
             return;
         }
         zst_file.write(compressed_data.data(), static_cast<std::streamsize>(compressed_size));
+        zst_file.flush();
+        if (!zst_file) {
+            std::cerr << "[storage] failed to write chunk data: " << chunk_tmp_path << std::endl;
+            return;
+        }
+    }
+    {
+        std::error_code ec;
+        fs::rename(chunk_tmp_path, chunk_path, ec);
+        if (ec) {
+            std::cerr << "[storage] failed to commit chunk file: " << ec.message() << std::endl;
+            return;
+        }
     }
 
     ChunkMeta meta;
@@ -268,10 +304,20 @@ void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch) {
     meta.bloom = std::move(bloom);
 
     {
-        std::ofstream meta_file(meta_path);
+        std::ofstream meta_file(meta_tmp_path);
         if (meta_file) {
             meta_file << meta.to_json().dump(2);
+            meta_file.flush();
         }
+    }
+    {
+        std::error_code ec;
+        fs::rename(meta_tmp_path, meta_path, ec);
+    }
+
+    if (!wal_flushing_path.empty()) {
+        std::error_code ec;
+        fs::remove(wal_flushing_path, ec);
     }
 
     {
@@ -292,41 +338,84 @@ void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch) {
     }
 }
 
+void LogStorage::recover_wal_file(const std::string& path) {
+    std::error_code ec;
+    if (!fs::exists(path, ec)) return;
+
+    std::ifstream in(path);
+    if (!in.is_open()) return;
+
+    std::vector<LogEntry> recovered;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty()) continue;
+        try {
+            nlohmann::json j = nlohmann::json::parse(line);
+            recovered.push_back(LogEntry::from_json(j));
+        } catch (...) {
+            // Skip partial trailing line from an abrupt crash
+        }
+    }
+    in.close();
+
+    if (!recovered.empty()) {
+        std::cout << "[wal] recovering " << recovered.size() << " uncommitted logs from " << path << std::endl;
+        total_logs_ingested_.fetch_add(recovered.size(), std::memory_order_relaxed);
+        flush_batch_to_disk(recovered, path);
+    } else {
+        fs::remove(path, ec);
+    }
+}
+
 void LogStorage::load_existing_chunks() {
-    std::lock_guard<std::mutex> lock(metadata_mutex_);
-    chunks_.clear();
-    known_services_.clear();
-    total_compressed_bytes_ = 0;
-    total_uncompressed_bytes_ = 0;
+    {
+        std::lock_guard<std::mutex> lock(metadata_mutex_);
+        chunks_.clear();
+        known_services_.clear();
+        total_compressed_bytes_ = 0;
+        total_uncompressed_bytes_ = 0;
 
-    if (!fs::exists(data_dir_)) return;
+        if (!fs::exists(data_dir_)) return;
 
-    for (const auto& entry : fs::recursive_directory_iterator(data_dir_)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".meta") {
-            try {
-                std::ifstream f(entry.path());
-                if (!f) continue;
-                nlohmann::json j = nlohmann::json::parse(f);
-                ChunkMeta meta = ChunkMeta::from_json(j, entry.path().string());
+        for (const auto& entry : fs::recursive_directory_iterator(data_dir_)) {
+            if (!entry.is_regular_file()) continue;
+            if (entry.path().extension() == ".tmp") {
+                std::error_code ec;
+                fs::remove(entry.path(), ec);
+                continue;
+            }
+            if (entry.path().extension() == ".meta") {
+                try {
+                    std::ifstream f(entry.path());
+                    if (!f) continue;
+                    nlohmann::json j = nlohmann::json::parse(f);
+                    ChunkMeta meta = ChunkMeta::from_json(j, entry.path().string());
 
-                if (!fs::exists(meta.chunk_file_path)) {
-                    fs::path alt = entry.path().parent_path() / (meta.id + ".zst");
-                    if (fs::exists(alt)) {
-                        meta.chunk_file_path = alt.string();
+                    if (!fs::exists(meta.chunk_file_path)) {
+                        fs::path alt = entry.path().parent_path() / (meta.id + ".zst");
+                        if (fs::exists(alt)) {
+                            meta.chunk_file_path = alt.string();
+                        } else {
+                            continue;
+                        }
                     }
-                }
 
-                total_compressed_bytes_ += meta.compressed_bytes;
-                total_uncompressed_bytes_ += meta.uncompressed_bytes;
-                for (const auto& s : meta.services) {
-                    known_services_.insert(s);
+                    total_compressed_bytes_ += meta.compressed_bytes;
+                    total_uncompressed_bytes_ += meta.uncompressed_bytes;
+                    for (const auto& s : meta.services) {
+                        known_services_.insert(s);
+                    }
+                    chunks_.push_back(std::move(meta));
+                } catch (const std::exception& e) {
+                    std::cerr << "[storage] failed to load meta " << entry.path() << ": " << e.what() << std::endl;
                 }
-                chunks_.push_back(std::move(meta));
-            } catch (const std::exception& e) {
-                std::cerr << "[storage] failed to load meta " << entry.path() << ": " << e.what() << std::endl;
             }
         }
     }
+
+    // Replay any uncommitted WAL files left from an abrupt shutdown
+    recover_wal_file(wal_flushing_path_);
+    recover_wal_file(wal_path_);
 }
 
 

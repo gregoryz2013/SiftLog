@@ -90,14 +90,17 @@ public:
 
 private:
     void background_flusher();
-    void flush_batch_to_disk(const std::vector<LogEntry>& batch);
+    void flush_batch_to_disk(const std::vector<LogEntry>& batch, const std::string& wal_flushing_path = "");
     void load_existing_chunks();
+    void recover_wal_file(const std::string& path);
 
     static std::string get_date_string(int64_t ts_ms);
     static bool matches_filter(const LogEntry& log, const SearchParams& params, const LogSqlParser* parser = nullptr);
     static std::vector<LogEntry> search_chunk_file(const ChunkMeta& meta, const SearchParams& params, const LogSqlParser* parser = nullptr);
 
     std::string data_dir_;
+    std::string wal_path_;
+    std::string wal_flushing_path_;
     size_t max_batch_size_;
     std::chrono::milliseconds flush_interval_;
     int retention_days_;

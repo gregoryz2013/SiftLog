@@ -1000,18 +1000,7 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
         </div>
       </div>
 
-      <!-- Edition Info Block -->
-      <div class="sidebar-block" id="enterprise-block" style="margin-top:auto; background:rgba(15, 23, 42, 0.4); border-top:1px solid var(--border);">
-        <div class="sidebar-heading">
-          <span>Edition</span>
-          <span class="badge" id="sidebar-plan-badge" style="color:var(--text-muted); border-color:var(--border);">COMMUNITY</span>
-        </div>
-        <div style="font-family:var(--mono); font-size:0.64rem; color:var(--text-muted); line-height:1.45; margin-top:0.2rem;">
-          <div id="ent-customer">Community Edition</div>
-          <div id="ent-status">License: Apache 2.0</div>
-          <div id="ent-features" style="margin-top:0.25rem; color:var(--text-dim);">Zstd &bull; LogSQL &bull; PII Masking</div>
-        </div>
-      </div>
+      <!-- Edition Info Block removed for clean OSS UI -->
     </aside>
 
     <!-- Main Viewport -->
@@ -1033,7 +1022,7 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       <!-- Query & Filter Toolbar -->
       <div class="query-panel">
         <div class="search-input-row">
-          <input type="text" id="query-input" class="search-input" placeholder='LogSQL: "exact phrase" AND service:auth level:ERROR NOT health (Press / to focus)' onkeydown="if(event.key==='Enter') executeSearch()">
+          <input type="text" id="query-input" class="search-input" placeholder='Query: "exact phrase" AND service:auth level:ERROR NOT health (Press / to focus)' onkeydown="if(event.key==='Enter') executeSearch()">
           <button class="btn" onclick="executeSearch()">Search</button>
           <button class="search-btn-clear" onclick="resetFilters()">Reset</button>
         </div>

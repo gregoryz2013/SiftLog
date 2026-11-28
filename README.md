@@ -60,7 +60,9 @@ python3 tests/benchmark_ingest.py
 
 ## Architecture & Capabilities
 
-- **Multi-Terabyte Scale (Up to 2.5 TB+ Raw Logs):** Each compressed chunk stores a sparse index (`min_ts`, `max_ts`, `services`, `levels`) plus an **8192-bit per-chunk Bloom filter** (`1 KB`), skipping non-matching chunks without Zstd decompression. Bounded worker pools keep search memory predictable across hundreds of thousands of chunks.
+- **Multi-Node Cluster & Replication:** Scale horizontally across multiple nodes using `--peers` (parallel federated search, analytics, and distributed trace stitching across the cluster) and `--replicate-to` (async write replication for high availability).
+- **Fast Search Without Full Decompression:** Each chunk stores a sparse index (`min_ts`, `max_ts`, `services`, `levels`, per-service/level counters) plus an **8192-bit Bloom filter** (`1 KB`), skipping non-matching chunks. Wave-based **Top-N early-exit pruning** scans newest chunks first and stops as soon as `limit` chronological matches are guaranteed — avoiding decompressing older archives on heavy queries.
+- **Analytics & Prometheus `/metrics`:** Built-in `GET /api/v1/analytics` (per-service volume, error rate %, top recurring errors) with an Analytics UI panel, plus a native Prometheus `/metrics` endpoint.
 - **Low Memory Footprint:** ~10 MB RAM idle, ~37 MB under load; runs comfortably on a 1 vCPU / 1 GB VPS (2–4 GB RAM recommended for multi-terabyte archives).
 - **Zero External Dependencies:** Single statically linked binary (~2.2 MB) with embedded web dashboard.
 - **Structured Query Syntax:** Supports exact phrases (`"connection refused"`), field filters (`service:auth level:ERROR`), and boolean operators (`AND`, `OR`, `NOT`, `!`). All JSON tokens (including nested fields) are indexed in per-chunk Bloom filters for fast chunk pruning.
@@ -88,9 +90,9 @@ You can use SiftLog's built-in UI or connect it directly to **Grafana** alongsid
 
 ## Known Limitations & Trade-offs
 
-- **Single-node architecture:** SiftLog does not currently support multi-node clustering or automatic replication. For multi-terabyte clusters, multi-tenancy RBAC, or full analytical LogsQL pipelines (`stats`, `rate`, `count by`), tools like **VictoriaLogs** or **ClickHouse** are a better fit. SiftLog focuses on minimal resource usage (~10 MB RAM), zero-ops single-binary deployment, built-in PII redaction, and instant startup on small/medium infrastructure.
-- **Query language scope:** The query parser supports boolean text search (`AND`, `OR`, `NOT`), exact phrases, and `key:value` filters. It does not yet support aggregation pipelines (`stats`, `count by`, `rate`, regex extraction on the fly).
-- **Wide-range scans:** Bloom filters skip irrelevant chunks for specific tokens/IDs, but queries without selective terms (e.g., scanning all `INFO` logs across 100 GB of matching chunks) still decompress and scan matching Zstd chunks.
+- **Cluster model:** SiftLog uses a lightweight stateless federated cluster (`--peers` + `--replicate-to`) rather than consensus-based Raft sharding. For petabyte-scale clusters, multi-tenancy RBAC, or full analytical LogsQL pipelines (`rate`, `regex` extraction on the fly), **VictoriaLogs** or **ClickHouse** are a better fit. SiftLog focuses on minimal resource usage (~10 MB RAM), zero-ops deployment, built-in PII redaction, and instant startup.
+- **Query language scope:** Supports boolean text search (`AND`, `OR`, `NOT`), exact phrases, `key:value` filters, and service/error aggregations via `/api/v1/analytics` and `/metrics`.
+- **Wide unselective scans:** While Bloom filters and Top-N early-exit pruning skip most chunks, queries requesting `limit=1000` for rare terms across 100 GB of matching chunks still decompress matching Zstd chunks until enough matches are found.
 
 ## Log Shipping Integrations
 
@@ -159,6 +161,8 @@ level = "{{ level }}"
 | `--tg-token` | `SIFTLOG_TG_TOKEN` | `""` | Telegram Bot API token for alerts |
 | `--tg-chat-id` | `SIFTLOG_TG_CHAT_ID` | `""` | Telegram chat ID |
 | `--alert-webhook` | `SIFTLOG_ALERT_WEBHOOK` | `""` | Generic webhook URL for alerts (Slack, Discord, Alertmanager) |
+| `--peers` | `SIFTLOG_PEERS` | `""` | Comma-separated peer URLs for distributed cluster search |
+| `--replicate-to` | `SIFTLOG_REPLICATE_TO` | `""` | Comma-separated replica URLs for async write replication |
 
 ## API Reference
 
@@ -169,6 +173,8 @@ level = "{{ level }}"
 - `GET /loki/api/v1/query_range` / `GET /loki/api/v1/query` — Grafana Loki-compatible log query API.
 - `GET /loki/api/v1/labels` / `GET /loki/api/v1/label/{name}/values` — Label discovery for Grafana.
 - `GET /api/v1/search` — Query search (`q`, `service`, `level`, `from`, `to`, `limit`).
+- `GET /api/v1/analytics` — Service volume breakdown, error rate %, and top recurring errors.
+- `GET /metrics` — Prometheus metrics exposition endpoint.
 - `GET /api/v1/histogram` — Time-bucketed log volume and error counts (`q`, `service`, `level`, `from`, `to`, `step`).
 - `GET /api/v1/trace` — Reconstruct distributed trace waterfall by `trace_id`.
 - `GET /api/v1/stats` — Storage size, compression ratio, known services, and recent alerts.

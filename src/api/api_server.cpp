@@ -4,7 +4,9 @@
 #include <iostream>
 #include <iomanip>
 #include <map>
+#include <set>
 #include <sstream>
+#include <future>
 
 ApiServer::ApiServer(std::shared_ptr<LogStorage> storage,
                      std::shared_ptr<AlertManager> alert_manager,
@@ -15,7 +17,9 @@ ApiServer::ApiServer(std::shared_ptr<LogStorage> storage,
                      std::shared_ptr<PiiMasker> pii_masker,
                      EnterpriseLicense license,
                      std::shared_ptr<EnterpriseUpdater> updater,
-                     std::shared_ptr<AuditLedger> audit_ledger)
+                     std::shared_ptr<AuditLedger> audit_ledger,
+                     std::vector<std::string> peers,
+                     std::vector<std::string> replicate_to)
     : storage_(std::move(storage)),
       alert_manager_(std::move(alert_manager)),
       host_(std::move(host)),
@@ -26,8 +30,53 @@ ApiServer::ApiServer(std::shared_ptr<LogStorage> storage,
       license_(std::move(license)),
       updater_(std::move(updater)),
       audit_ledger_(std::move(audit_ledger)),
+      peers_(std::move(peers)),
+      replicate_to_(std::move(replicate_to)),
       start_time_(std::chrono::steady_clock::now()) {
     setup_routes();
+}
+
+nlohmann::json ApiServer::query_peer_json(const std::string& peer_url, const std::string& path_and_query, const httplib::Request& orig_req) {
+    try {
+        httplib::Client cli(peer_url);
+        cli.set_connection_timeout(1, 500000);
+        cli.set_read_timeout(3, 0);
+        httplib::Headers hdrs;
+        if (orig_req.has_header("Authorization")) {
+            hdrs.emplace("Authorization", orig_req.get_header_value("Authorization"));
+        }
+        auto res = cli.Get(path_and_query, hdrs);
+        if (res && res->status == 200) {
+            return nlohmann::json::parse(res->body);
+        }
+    } catch (...) {}
+    return nlohmann::json();
+}
+
+void ApiServer::replicate_entries_async(const std::vector<LogEntry>& entries, const httplib::Request& req) {
+    if (replicate_to_.empty() || entries.empty()) return;
+    if (req.has_header("X-SiftLog-Replica")) return;
+
+    nlohmann::json batch_json = nlohmann::json::array();
+    for (const auto& e : entries) {
+        batch_json.push_back(e.to_json());
+    }
+    std::string body = batch_json.dump();
+    auto targets = replicate_to_;
+    std::string auth_hdr = req.has_header("Authorization") ? req.get_header_value("Authorization") : "";
+
+    std::thread([targets = std::move(targets), body = std::move(body), auth_hdr = std::move(auth_hdr)]() {
+        for (const auto& url : targets) {
+            try {
+                httplib::Client cli(url);
+                cli.set_connection_timeout(1, 500000);
+                cli.set_read_timeout(3, 0);
+                httplib::Headers hdrs = {{"X-SiftLog-Replica", "1"}};
+                if (!auth_hdr.empty()) hdrs.emplace("Authorization", auth_hdr);
+                cli.Post("/api/v1/logs", hdrs, body, "application/json");
+            } catch (...) {}
+        }
+    }).detach();
 }
 
 bool ApiServer::check_auth(const httplib::Request& req, httplib::Response& res) {
@@ -178,6 +227,7 @@ void ApiServer::setup_routes() {
 
         size_t count = entries.size();
         storage_->append_batch(entries);
+        replicate_entries_async(entries, req);
         if (audit_ledger_) audit_ledger_->record_event(get_client_ip(req), "INGEST", "count=" + std::to_string(count));
 
         nlohmann::json response = {
@@ -263,6 +313,7 @@ void ApiServer::setup_routes() {
 
         if (!entries.empty()) {
             storage_->append_batch(entries);
+            replicate_entries_async(entries, req);
         }
 
         // Standard Loki push response is 204 No Content
@@ -330,6 +381,7 @@ void ApiServer::setup_routes() {
 
         if (!entries.empty()) {
             storage_->append_batch(entries);
+            replicate_entries_async(entries, req);
         }
         res.status = 200;
         res.set_content("{}", "application/json");
@@ -373,6 +425,7 @@ void ApiServer::setup_routes() {
 
         if (!entries.empty()) {
             storage_->append_batch(entries);
+            replicate_entries_async(entries, req);
         }
         nlohmann::json resp = {
             {"took", 1},
@@ -529,15 +582,49 @@ void ApiServer::setup_routes() {
 
         SearchResult search_result = storage_->search(params);
 
+        std::vector<LogEntry> merged_logs = std::move(search_result.logs);
+        size_t total_scanned = search_result.total_scanned_chunks;
+        size_t matched_chunks = search_result.matched_chunks;
+        size_t total_matched = search_result.total_matched;
+
+        if (!req.has_param("local") && !peers_.empty()) {
+            std::string qs = req.target;
+            qs += (qs.find('?') == std::string::npos) ? "?local=1" : "&local=1";
+            std::vector<std::future<nlohmann::json>> futs;
+            for (const auto& p : peers_) {
+                futs.push_back(std::async(std::launch::async, [this, p, qs, &req]() {
+                    return query_peer_json(p, qs, req);
+                }));
+            }
+            for (auto& f : futs) {
+                auto pj = f.get();
+                if (!pj.is_object()) continue;
+                total_scanned += pj.value("total_scanned_chunks", static_cast<size_t>(0));
+                matched_chunks += pj.value("matched_chunks", static_cast<size_t>(0));
+                total_matched += pj.value("total_matched", static_cast<size_t>(0));
+                if (pj.contains("logs") && pj["logs"].is_array()) {
+                    for (const auto& item : pj["logs"]) {
+                        merged_logs.push_back(LogEntry::from_json(item));
+                    }
+                }
+            }
+            std::sort(merged_logs.begin(), merged_logs.end(), [](const LogEntry& a, const LogEntry& b) {
+                return a.timestamp > b.timestamp;
+            });
+            if (merged_logs.size() > params.limit) {
+                merged_logs.resize(params.limit);
+            }
+        }
+
         nlohmann::json logs_json = nlohmann::json::array();
-        for (const auto& log : search_result.logs) {
+        for (const auto& log : merged_logs) {
             logs_json.push_back(log.to_json());
         }
 
         nlohmann::json response = {
-            {"total_scanned_chunks", search_result.total_scanned_chunks},
-            {"matched_chunks", search_result.matched_chunks},
-            {"total_matched", search_result.total_matched},
+            {"total_scanned_chunks", total_scanned},
+            {"matched_chunks", matched_chunks},
+            {"total_matched", total_matched},
             {"duration_ms", search_result.duration_ms},
             {"logs", logs_json}
         };
@@ -599,11 +686,39 @@ void ApiServer::setup_routes() {
         int64_t uptime_sec = std::chrono::duration_cast<std::chrono::seconds>(now - start_time_).count();
 
         StorageStats stats = storage_->get_stats();
+        std::set<std::string> merged_services(stats.known_services.begin(), stats.known_services.end());
+        size_t total_ingested = stats.total_logs_ingested;
+        size_t total_chunks = stats.total_chunks_on_disk;
+        size_t bytes_comp = stats.disk_bytes_compressed;
+        size_t bytes_uncomp = stats.disk_bytes_uncompressed;
+        size_t saved_events = storage_->get_noise_filter() ? storage_->get_noise_filter()->get_saved_events() : 0;
+
+        if (!req.has_param("local") && !peers_.empty()) {
+            std::vector<std::future<nlohmann::json>> futs;
+            for (const auto& p : peers_) {
+                futs.push_back(std::async(std::launch::async, [this, p, &req]() {
+                    return query_peer_json(p, "/api/v1/stats?local=1", req);
+                }));
+            }
+            for (auto& f : futs) {
+                auto pj = f.get();
+                if (!pj.is_object()) continue;
+                total_ingested += pj.value("total_logs_ingested", static_cast<size_t>(0));
+                total_chunks += pj.value("total_chunks_on_disk", static_cast<size_t>(0));
+                bytes_comp += pj.value("disk_bytes_compressed", static_cast<size_t>(0));
+                bytes_uncomp += pj.value("disk_bytes_uncompressed", static_cast<size_t>(0));
+                saved_events += pj.value("finops_saved_events", static_cast<size_t>(0));
+                if (pj.contains("services") && pj["services"].is_array()) {
+                    for (const auto& s : pj["services"]) {
+                        if (s.is_string()) merged_services.insert(s.get<std::string>());
+                    }
+                }
+            }
+        }
 
         double ratio = 1.0;
-        if (stats.disk_bytes_compressed > 0) {
-            ratio = static_cast<double>(stats.disk_bytes_uncompressed) /
-                    static_cast<double>(stats.disk_bytes_compressed);
+        if (bytes_comp > 0) {
+            ratio = static_cast<double>(bytes_uncomp) / static_cast<double>(bytes_comp);
         }
 
         std::ostringstream ratio_ss;
@@ -616,15 +731,16 @@ void ApiServer::setup_routes() {
 
         nlohmann::json response = {
             {"uptime_seconds", uptime_sec},
-            {"total_logs_ingested", stats.total_logs_ingested},
-            {"total_chunks_on_disk", stats.total_chunks_on_disk},
-            {"disk_bytes_compressed", stats.disk_bytes_compressed},
-            {"disk_bytes_uncompressed", stats.disk_bytes_uncompressed},
+            {"cluster_nodes", 1 + peers_.size()},
+            {"total_logs_ingested", total_ingested},
+            {"total_chunks_on_disk", total_chunks},
+            {"disk_bytes_compressed", bytes_comp},
+            {"disk_bytes_uncompressed", bytes_uncomp},
             {"compression_ratio", ratio_ss.str()},
-            {"services", stats.known_services},
+            {"services", std::vector<std::string>(merged_services.begin(), merged_services.end())},
             {"pii_masking", pii_masker_ ? pii_masker_->is_enabled() : false},
             {"noise_filter_enabled", storage_->get_noise_filter() ? storage_->get_noise_filter()->is_enabled() : false},
-            {"finops_saved_events", storage_->get_noise_filter() ? storage_->get_noise_filter()->get_saved_events() : 0},
+            {"finops_saved_events", saved_events},
             {"enterprise_plan", license_.plan},
             {"license_active", license_.is_active()},
             {"recent_alerts", alerts_json}
@@ -632,6 +748,122 @@ void ApiServer::setup_routes() {
 
         res.status = 200;
         res.set_content(response.dump(), "application/json");
+    });
+
+    // Analytics & Aggregations API (per-service breakdown, error rates, top errors)
+    svr_.Get("/api/v1/analytics", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Cache-Control", "no-cache");
+
+        int64_t from_ts = 0, to_ts = 0;
+        if (req.has_param("from")) { try { from_ts = std::stoll(req.get_param_value("from")); } catch (...) {} }
+        if (req.has_param("to")) { try { to_ts = std::stoll(req.get_param_value("to")); } catch (...) {} }
+
+        AnalyticsResult ar = storage_->get_analytics(from_ts, to_ts);
+        std::unordered_map<std::string, size_t> svc_totals = ar.service_totals;
+        std::unordered_map<std::string, size_t> lvl_totals = ar.level_totals;
+        std::unordered_map<std::string, size_t> err_map;
+        for (const auto& [msg, cnt] : ar.top_errors) err_map[msg] += cnt;
+        size_t total_logs = ar.total_logs;
+        size_t total_errors = ar.total_errors;
+        size_t total_warns = ar.total_warns;
+
+        if (!req.has_param("local") && !peers_.empty()) {
+            std::string qs = req.target;
+            qs += (qs.find('?') == std::string::npos) ? "?local=1" : "&local=1";
+            std::vector<std::future<nlohmann::json>> futs;
+            for (const auto& p : peers_) {
+                futs.push_back(std::async(std::launch::async, [this, p, qs, &req]() {
+                    return query_peer_json(p, qs, req);
+                }));
+            }
+            for (auto& f : futs) {
+                auto pj = f.get();
+                if (!pj.is_object()) continue;
+                total_logs += pj.value("total_logs", static_cast<size_t>(0));
+                total_errors += pj.value("total_errors", static_cast<size_t>(0));
+                total_warns += pj.value("total_warns", static_cast<size_t>(0));
+                if (pj.contains("services") && pj["services"].is_array()) {
+                    for (const auto& item : pj["services"]) {
+                        svc_totals[item.value("service", "unknown")] += item.value("count", static_cast<size_t>(0));
+                    }
+                }
+                if (pj.contains("levels") && pj["levels"].is_object()) {
+                    for (auto& [k, v] : pj["levels"].items()) {
+                        lvl_totals[k] += v.get<size_t>();
+                    }
+                }
+                if (pj.contains("top_errors") && pj["top_errors"].is_array()) {
+                    for (const auto& item : pj["top_errors"]) {
+                        err_map[item.value("message", "")] += item.value("count", static_cast<size_t>(0));
+                    }
+                }
+            }
+        }
+
+        std::vector<std::pair<std::string, size_t>> svcs_sorted(svc_totals.begin(), svc_totals.end());
+        std::sort(svcs_sorted.begin(), svcs_sorted.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+        nlohmann::json svcs_json = nlohmann::json::array();
+        for (const auto& [s, c] : svcs_sorted) {
+            double share = total_logs > 0 ? (static_cast<double>(c) * 100.0 / static_cast<double>(total_logs)) : 0.0;
+            svcs_json.push_back({{"service", s}, {"count", c}, {"share_pct", std::round(share * 10.0) / 10.0}});
+        }
+
+        std::vector<std::pair<std::string, size_t>> errs_sorted(err_map.begin(), err_map.end());
+        std::sort(errs_sorted.begin(), errs_sorted.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+        if (errs_sorted.size() > 10) errs_sorted.resize(10);
+        nlohmann::json errs_json = nlohmann::json::array();
+        for (const auto& [m, c] : errs_sorted) {
+            errs_json.push_back({{"message", m}, {"count", c}});
+        }
+
+        double err_rate = total_logs > 0 ? (static_cast<double>(total_errors) * 100.0 / static_cast<double>(total_logs)) : 0.0;
+        nlohmann::json resp = {
+            {"total_logs", total_logs},
+            {"total_errors", total_errors},
+            {"total_warns", total_warns},
+            {"error_rate_pct", std::round(err_rate * 100.0) / 100.0},
+            {"duration_ms", ar.duration_ms},
+            {"levels", lvl_totals},
+            {"services", svcs_json},
+            {"top_errors", errs_json}
+        };
+        res.status = 200;
+        res.set_content(resp.dump(), "application/json");
+    });
+
+    // Prometheus Metrics Exposition Endpoint
+    svr_.Get("/metrics", [this](const httplib::Request&, httplib::Response& res) {
+        StorageStats stats = storage_->get_stats();
+        AnalyticsResult ar = storage_->get_analytics();
+        double ratio = stats.disk_bytes_compressed > 0
+            ? static_cast<double>(stats.disk_bytes_uncompressed) / static_cast<double>(stats.disk_bytes_compressed)
+            : 1.0;
+
+        std::ostringstream out;
+        out << "# HELP siftlog_logs_ingested_total Total log entries ingested\n"
+            << "# TYPE siftlog_logs_ingested_total counter\n"
+            << "siftlog_logs_ingested_total " << stats.total_logs_ingested << "\n"
+            << "# HELP siftlog_chunks_total Total compressed chunks on disk\n"
+            << "# TYPE siftlog_chunks_total gauge\n"
+            << "siftlog_chunks_total " << stats.total_chunks_on_disk << "\n"
+            << "# HELP siftlog_disk_bytes_compressed Compressed bytes stored on disk\n"
+            << "# TYPE siftlog_disk_bytes_compressed gauge\n"
+            << "siftlog_disk_bytes_compressed " << stats.disk_bytes_compressed << "\n"
+            << "# HELP siftlog_compression_ratio Zstandard compression ratio\n"
+            << "# TYPE siftlog_compression_ratio gauge\n"
+            << "siftlog_compression_ratio " << std::fixed << std::setprecision(2) << ratio << "\n"
+            << "# HELP siftlog_errors_total Total ERROR/FATAL log entries\n"
+            << "# TYPE siftlog_errors_total counter\n"
+            << "siftlog_errors_total " << ar.total_errors << "\n"
+            << "# HELP siftlog_service_logs_total Total log entries per service\n"
+            << "# TYPE siftlog_service_logs_total counter\n";
+        for (const auto& [svc, cnt] : ar.service_totals) {
+            out << "siftlog_service_logs_total{service=\"" << svc << "\"} " << cnt << "\n";
+        }
+        res.status = 200;
+        res.set_content(out.str(), "text/plain; version=0.0.4; charset=utf-8");
     });
 
     // Enterprise: License Info
@@ -786,6 +1018,34 @@ void ApiServer::setup_routes() {
             return;
         }
         std::vector<LogEntry> logs = storage_->get_trace(trace_id);
+
+        if (!req.has_param("local") && !peers_.empty()) {
+            std::string qs = req.target;
+            qs += (qs.find('?') == std::string::npos) ? "?local=1" : "&local=1";
+            std::vector<std::future<nlohmann::json>> futs;
+            for (const auto& p : peers_) {
+                futs.push_back(std::async(std::launch::async, [this, p, qs, &req]() {
+                    return query_peer_json(p, qs, req);
+                }));
+            }
+            for (auto& f : futs) {
+                auto pj = f.get();
+                if (!pj.is_object() || !pj.contains("spans") || !pj["spans"].is_array()) continue;
+                for (const auto& sp : pj["spans"]) {
+                    LogEntry e;
+                    e.service = sp.value("service", "default");
+                    e.level = sp.value("level", "INFO");
+                    e.message = sp.value("message", "");
+                    e.timestamp = sp.value("timestamp_ms", static_cast<int64_t>(0));
+                    e.repeat_count = sp.value("repeat_count", static_cast<size_t>(1));
+                    e.trace_id = trace_id;
+                    logs.push_back(std::move(e));
+                }
+            }
+            std::sort(logs.begin(), logs.end(), [](const LogEntry& a, const LogEntry& b) {
+                return a.timestamp < b.timestamp;
+            });
+        }
 
         int64_t start_ms = logs.empty() ? 0 : logs.front().timestamp;
         int64_t end_ms = logs.empty() ? 0 : logs.back().timestamp;

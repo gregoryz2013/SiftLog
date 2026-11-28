@@ -216,6 +216,8 @@ void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch, const s
     int64_t max_ts = batch.front().timestamp;
     std::unordered_set<std::string> services;
     std::unordered_set<std::string> levels;
+    std::unordered_map<std::string, size_t> service_counts;
+    std::unordered_map<std::string, size_t> level_counts;
     BloomFilter bloom;
 
     std::string uncompressed_data;
@@ -226,6 +228,8 @@ void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch, const s
         max_ts = std::max(max_ts, log.timestamp);
         services.insert(log.service);
         levels.insert(log.level);
+        service_counts[log.service] += log.repeat_count;
+        level_counts[log.level] += log.repeat_count;
         bloom.add_token(log.service);
         if (!log.trace_id.empty()) {
             bloom.add_token(log.trace_id);
@@ -298,6 +302,8 @@ void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch, const s
     meta.count = batch.size();
     meta.services = std::move(services);
     meta.levels = std::move(levels);
+    meta.service_counts = std::move(service_counts);
+    meta.level_counts = std::move(level_counts);
     meta.uncompressed_bytes = uncompressed_size;
     meta.compressed_bytes = compressed_size;
     meta.has_bloom = true;
@@ -509,46 +515,6 @@ SearchResult LogStorage::search(const SearchParams& params) {
 
     std::vector<LogEntry> all_matches;
 
-    if (candidate_chunks.size() <= 2) {
-        for (const auto& ch : candidate_chunks) {
-            auto chunk_matches = search_chunk_file(ch, params, parser.get());
-            all_matches.insert(all_matches.end(),
-                               std::make_move_iterator(chunk_matches.begin()),
-                               std::make_move_iterator(chunk_matches.end()));
-        }
-    } else {
-        // Bounded worker pool prevents spawning thousands of threads on multi-terabyte datasets
-        size_t hw = std::thread::hardware_concurrency();
-        size_t num_workers = std::min<size_t>(std::max<size_t>(hw, 2), std::min<size_t>(8, candidate_chunks.size()));
-        std::atomic<size_t> next_idx{0};
-        std::vector<std::vector<LogEntry>> worker_results(num_workers);
-        std::vector<std::thread> workers;
-        workers.reserve(num_workers);
-
-        for (size_t w = 0; w < num_workers; ++w) {
-            workers.emplace_back([&, w]() {
-                while (true) {
-                    size_t idx = next_idx.fetch_add(1, std::memory_order_relaxed);
-                    if (idx >= candidate_chunks.size()) break;
-                    auto chunk_matches = search_chunk_file(candidate_chunks[idx], params, parser.get());
-                    if (!chunk_matches.empty()) {
-                        worker_results[w].insert(worker_results[w].end(),
-                                                 std::make_move_iterator(chunk_matches.begin()),
-                                                 std::make_move_iterator(chunk_matches.end()));
-                    }
-                }
-            });
-        }
-        for (auto& t : workers) {
-            t.join();
-        }
-        for (auto& wr : worker_results) {
-            all_matches.insert(all_matches.end(),
-                               std::make_move_iterator(wr.begin()),
-                               std::make_move_iterator(wr.end()));
-        }
-    }
-
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
         for (const auto& entry : current_batch_) {
@@ -556,6 +522,53 @@ SearchResult LogStorage::search(const SearchParams& params) {
                 all_matches.push_back(entry);
             }
         }
+    }
+
+    auto can_early_exit = [&](size_t next_chunk_idx) -> bool {
+        if (next_chunk_idx >= candidate_chunks.size()) return true;
+        if (all_matches.size() < params.limit) return false;
+        std::nth_element(all_matches.begin(),
+                         all_matches.begin() + static_cast<ptrdiff_t>(params.limit - 1),
+                         all_matches.end(),
+                         [](const LogEntry& a, const LogEntry& b) { return a.timestamp > b.timestamp; });
+        int64_t kth_ts = all_matches[params.limit - 1].timestamp;
+        return candidate_chunks[next_chunk_idx].max_ts < kth_ts;
+    };
+
+    // Wave-based bounded parallel scan with Top-N early exit (newest chunks first)
+    size_t hw = std::thread::hardware_concurrency();
+    size_t wave_size = std::min<size_t>(std::max<size_t>(hw, 2), 8);
+    size_t cursor = 0;
+
+    while (cursor < candidate_chunks.size()) {
+        if (can_early_exit(cursor)) {
+            break;
+        }
+        size_t end_idx = std::min(candidate_chunks.size(), cursor + wave_size);
+        size_t count = end_idx - cursor;
+
+        if (count == 1) {
+            auto chunk_matches = search_chunk_file(candidate_chunks[cursor], params, parser.get());
+            all_matches.insert(all_matches.end(),
+                               std::make_move_iterator(chunk_matches.begin()),
+                               std::make_move_iterator(chunk_matches.end()));
+        } else {
+            std::vector<std::vector<LogEntry>> wave_results(count);
+            std::vector<std::thread> workers;
+            workers.reserve(count);
+            for (size_t i = 0; i < count; ++i) {
+                workers.emplace_back([&, i, idx = cursor + i]() {
+                    wave_results[i] = search_chunk_file(candidate_chunks[idx], params, parser.get());
+                });
+            }
+            for (auto& t : workers) t.join();
+            for (auto& wr : wave_results) {
+                all_matches.insert(all_matches.end(),
+                                   std::make_move_iterator(wr.begin()),
+                                   std::make_move_iterator(wr.end()));
+            }
+        }
+        cursor = end_idx;
     }
 
     result.total_matched = all_matches.size();
@@ -661,6 +674,90 @@ StorageStats LogStorage::get_stats() {
     stats.known_services.assign(known_services_.begin(), known_services_.end());
     std::sort(stats.known_services.begin(), stats.known_services.end());
     return stats;
+}
+
+AnalyticsResult LogStorage::get_analytics(int64_t from_ts, int64_t to_ts) {
+    auto start_time = std::chrono::steady_clock::now();
+    AnalyticsResult res;
+    std::vector<ChunkMeta> error_chunks;
+
+    {
+        std::lock_guard<std::mutex> lock(metadata_mutex_);
+        for (const auto& ch : chunks_) {
+            if (from_ts > 0 && ch.max_ts < from_ts) continue;
+            if (to_ts > 0 && ch.min_ts > to_ts) continue;
+
+            if (!ch.service_counts.empty()) {
+                for (const auto& [svc, cnt] : ch.service_counts) {
+                    res.service_totals[svc] += cnt;
+                }
+            } else if (!ch.services.empty()) {
+                size_t per_svc = std::max<size_t>(1, ch.count / ch.services.size());
+                for (const auto& svc : ch.services) {
+                    res.service_totals[svc] += per_svc;
+                }
+            }
+
+            if (!ch.level_counts.empty()) {
+                for (const auto& [lvl, cnt] : ch.level_counts) {
+                    res.level_totals[lvl] += cnt;
+                    res.total_logs += cnt;
+                    if (lvl == "ERROR" || lvl == "FATAL") res.total_errors += cnt;
+                    else if (lvl == "WARN") res.total_warns += cnt;
+                }
+            } else {
+                res.total_logs += ch.count;
+            }
+
+            if (ch.levels.count("ERROR") || ch.levels.count("FATAL")) {
+                error_chunks.push_back(ch);
+            }
+        }
+    }
+
+    std::unordered_map<std::string, size_t> err_msg_counts;
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        for (const auto& e : current_batch_) {
+            if (from_ts > 0 && e.timestamp < from_ts) continue;
+            if (to_ts > 0 && e.timestamp > to_ts) continue;
+            res.service_totals[e.service] += e.repeat_count;
+            res.level_totals[e.level] += e.repeat_count;
+            res.total_logs += e.repeat_count;
+            if (e.level == "ERROR" || e.level == "FATAL") {
+                res.total_errors += e.repeat_count;
+                err_msg_counts[e.service + ": " + e.message] += e.repeat_count;
+            } else if (e.level == "WARN") {
+                res.total_warns += e.repeat_count;
+            }
+        }
+    }
+
+    // Sample up to 8 most recent error chunks for top error messages without scanning the full archive
+    std::sort(error_chunks.begin(), error_chunks.end(), [](const ChunkMeta& a, const ChunkMeta& b) {
+        return a.max_ts > b.max_ts;
+    });
+    if (error_chunks.size() > 8) error_chunks.resize(8);
+
+    SearchParams err_params;
+    err_params.from_ts = from_ts;
+    err_params.to_ts = to_ts;
+    err_params.level = "ERROR";
+    for (const auto& ch : error_chunks) {
+        for (const auto& log : search_chunk_file(ch, err_params, nullptr)) {
+            err_msg_counts[log.service + ": " + log.message] += log.repeat_count;
+        }
+    }
+
+    res.top_errors.assign(err_msg_counts.begin(), err_msg_counts.end());
+    std::sort(res.top_errors.begin(), res.top_errors.end(), [](const auto& a, const auto& b) {
+        return a.second > b.second;
+    });
+    if (res.top_errors.size() > 10) res.top_errors.resize(10);
+
+    auto end_time = std::chrono::steady_clock::now();
+    res.duration_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
+    return res;
 }
 
 std::vector<LogEntry> LogStorage::get_trace(const std::string& trace_id) {

@@ -331,6 +331,15 @@ def main():
         assert status == 200 and json.loads(res)["total_matched"] == 1
         print("PASS: Elasticsearch Bulk API ingestion (/_bulk)")
 
+        # Test Prometheus /metrics and /api/v1/analytics
+        status, metrics_body = http_get("/metrics")
+        assert status == 200 and b"siftlog_logs_ingested_total" in metrics_body
+        status, an_body = http_get("/api/v1/analytics")
+        assert status == 200
+        an_data = json.loads(an_body)
+        assert an_data["total_logs"] > 0 and "services" in an_data
+        print("PASS: Prometheus /metrics and /api/v1/analytics")
+
         # Test RCA Endpoint
         status, res = http_get("/api/v1/enterprise/incident/rca")
         assert status == 200
@@ -413,6 +422,52 @@ def main():
         except Exception:
             proc_auth.kill()
             proc_auth.wait()
+
+    # --- Test Suite 3: Multi-Node Cluster Federated Search ---
+    print("\n--- [Suite 3: Multi-Node Cluster Federated Search] ---")
+    node2_dir = "./test_data_node2"
+    if os.path.exists(node2_dir):
+        shutil.rmtree(node2_dir, ignore_errors=True)
+    proc_n2 = subprocess.Popen([
+        binary_path, "--host", "127.0.0.1", "--port", "8998", "--data-dir", node2_dir
+    ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    proc_n1 = subprocess.Popen([
+        binary_path, "--host", "127.0.0.1", "--port", "8999", "--data-dir", TEST_DATA_DIR,
+        "--peers", "http://127.0.0.1:8998"
+    ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        assert wait_for_server(timeout=10), "Cluster node1 failed to start"
+        # Wait for node2
+        for _ in range(30):
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:8998/health", timeout=1) as r:
+                    if r.status == 200:
+                        break
+            except Exception:
+                time.sleep(0.2)
+
+        # Ingest log ONLY into Node 2 (port 8998)
+        n2_payload = json.dumps([{"service": "node2-worker", "level": "ERROR", "message": "Cluster federated test fault"}]).encode("utf-8")
+        req = urllib.request.Request("http://127.0.0.1:8998/api/v1/logs", data=n2_payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            assert r.status == 200
+
+        # Search on Node 1 (port 8999) - must find Node 2's log via federated cluster search
+        status, res = http_get("/api/v1/search?service=node2-worker")
+        assert status == 200
+        cdata = json.loads(res)
+        assert cdata["total_matched"] >= 1 and len(cdata["logs"]) >= 1
+        print("PASS: Multi-node federated search across --peers")
+    finally:
+        for p in (proc_n1, proc_n2):
+            p.terminate()
+            try:
+                p.wait(timeout=3)
+            except Exception:
+                p.kill()
+                p.wait()
+        if os.path.exists(node2_dir):
+            shutil.rmtree(node2_dir, ignore_errors=True)
 
     clean_data_dir()
     print("\n=======================================================")

@@ -11,6 +11,8 @@
 #include <csignal>
 #include <cstdlib>
 #include <memory>
+#include <sstream>
+#include <vector>
 
 static std::function<void()> g_shutdown_handler;
 
@@ -26,6 +28,18 @@ static std::string get_env(const char* name, const std::string& def) {
     return (val && *val) ? std::string(val) : def;
 }
 
+static std::vector<std::string> split_csv(const std::string& s) {
+    std::vector<std::string> out;
+    std::stringstream ss(s);
+    std::string item;
+    while (std::getline(ss, item, ',')) {
+        while (!item.empty() && (item.front() == ' ' || item.front() == '\t')) item.erase(item.begin());
+        while (!item.empty() && (item.back() == ' ' || item.back() == '\t' || item.back() == '/')) item.pop_back();
+        if (!item.empty()) out.push_back(item);
+    }
+    return out;
+}
+
 int main(int argc, char* argv[]) {
     std::string host = get_env("SIFTLOG_HOST", "0.0.0.0");
     int port = 8080;
@@ -33,6 +47,8 @@ int main(int argc, char* argv[]) {
     std::string tg_token = get_env("SIFTLOG_TG_TOKEN", "");
     std::string tg_chat_id = get_env("SIFTLOG_TG_CHAT_ID", "");
     std::string alert_webhook = get_env("SIFTLOG_ALERT_WEBHOOK", "");
+    std::string peers_str = get_env("SIFTLOG_PEERS", "");
+    std::string replicate_str = get_env("SIFTLOG_REPLICATE_TO", "");
     size_t error_threshold = 10;
     int retention_days = 0;
     std::string auth_user = get_env("SIFTLOG_AUTH_USER", "");
@@ -90,6 +106,10 @@ int main(int argc, char* argv[]) {
             tg_chat_id = argv[++i];
         } else if (arg == "--alert-webhook" && i + 1 < argc) {
             alert_webhook = argv[++i];
+        } else if (arg == "--peers" && i + 1 < argc) {
+            peers_str = argv[++i];
+        } else if (arg == "--replicate-to" && i + 1 < argc) {
+            replicate_str = argv[++i];
         } else if (arg == "--error-threshold" && i + 1 < argc) {
             error_threshold = std::stoull(argv[++i]);
         } else if (arg == "--retention-days" && i + 1 < argc) {
@@ -147,6 +167,8 @@ int main(int argc, char* argv[]) {
                       << "  --tg-token <token>           Telegram Bot token for alerts\n"
                       << "  --tg-chat-id <id>            Telegram Chat ID for alerts\n"
                       << "  --alert-webhook <url>        Webhook URL for error spike alerts (Slack, Discord, Alertmanager)\n"
+                      << "  --peers <urls>               Comma-separated peer node URLs for distributed cluster search\n"
+                      << "  --replicate-to <urls>        Comma-separated replica node URLs for async write replication\n"
                       << "  --error-threshold <n>        Error spike threshold per 60s window (default: 10)\n"
                       << "  --help, -h                   Show this help message\n";
             return 0;
@@ -190,7 +212,15 @@ int main(int argc, char* argv[]) {
     auto pii_masker = std::make_shared<PiiMasker>(mask_pii);
     auto updater = std::make_shared<EnterpriseUpdater>("0.5.0", update_url);
     auto audit_ledger = std::make_shared<AuditLedger>(audit_log_path);
-    auto server = std::make_shared<ApiServer>(storage, alert_manager, host, port, auth_user, auth_password, pii_masker, license, updater, audit_ledger);
+    auto peers = split_csv(peers_str);
+    auto replicate_to = split_csv(replicate_str);
+    if (!peers.empty()) {
+        std::cout << "[siftlog] cluster peers: " << peers.size() << " node(s)" << std::endl;
+    }
+    if (!replicate_to.empty()) {
+        std::cout << "[siftlog] replication targets: " << replicate_to.size() << " node(s)" << std::endl;
+    }
+    auto server = std::make_shared<ApiServer>(storage, alert_manager, host, port, auth_user, auth_password, pii_masker, license, updater, audit_ledger, std::move(peers), std::move(replicate_to));
 
     g_shutdown_handler = [&]() {
         server->stop();

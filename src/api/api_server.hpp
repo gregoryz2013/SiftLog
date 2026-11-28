@@ -21,7 +21,9 @@ public:
               std::shared_ptr<PiiMasker> pii_masker = nullptr,
               EnterpriseLicense license = {},
               std::shared_ptr<EnterpriseUpdater> updater = nullptr,
-              std::shared_ptr<AuditLedger> audit_ledger = nullptr);
+              std::shared_ptr<AuditLedger> audit_ledger = nullptr,
+              std::vector<std::string> peers = {},
+              std::vector<std::string> replicate_to = {});
 
     void start();
     void stop();
@@ -30,6 +32,8 @@ private:
     void setup_routes();
     static std::string get_client_ip(const httplib::Request& req);
     bool check_auth(const httplib::Request& req, httplib::Response& res);
+    void replicate_entries_async(const std::vector<LogEntry>& entries, const httplib::Request& req);
+    nlohmann::json query_peer_json(const std::string& peer_url, const std::string& path_and_query, const httplib::Request& orig_req);
 
     std::shared_ptr<LogStorage> storage_;
     std::shared_ptr<AlertManager> alert_manager_;
@@ -41,6 +45,8 @@ private:
     EnterpriseLicense license_;
     std::shared_ptr<EnterpriseUpdater> updater_;
     std::shared_ptr<AuditLedger> audit_ledger_;
+    std::vector<std::string> peers_;
+    std::vector<std::string> replicate_to_;
     httplib::Server svr_;
     std::chrono::steady_clock::time_point start_time_;
 };

@@ -928,6 +928,7 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
 
     <!-- Header Actions -->
     <div class="header-right">
+      <button class="btn btn-secondary" onclick="openAnalyticsModal()" title="Cluster Analytics &amp; Top Errors">Analytics</button>
       <button class="btn btn-secondary" id="audit-btn" onclick="openAuditModal()" title="Audit Trail" style="display:none; font-family:var(--mono); font-size:0.68rem;">Audit</button>
       <button class="btn-live" id="live-btn" onclick="toggleLiveTail()" title="Toggle real-time stream (s)">Live: OFF</button>
       <button class="btn btn-secondary" onclick="exportData('json')" title="Export matching logs as JSON">JSON</button>
@@ -1225,6 +1226,44 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
           <pre>curl -X POST http://localhost:8080/loki/api/v1/push \
   -H "Content-Type: application/json" \
   -d '{"streams":[{"stream":{"app":"api"},"values":[["1700000000000000000","200 OK"]]}]}'</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Analytics Modal -->
+  <div class="modal-overlay" id="analytics-modal">
+    <div class="modal-frame" style="max-width: 820px;">
+      <div class="modal-top">
+        <h3>Analytics &amp; Error Breakdown</h3>
+        <button class="modal-close-btn" onclick="closeAnalyticsModal()">&times;</button>
+      </div>
+      <div class="modal-content">
+        <div class="waterfall-summary" id="analytics-summary">
+          <div>Total Logs: <strong id="an-total">0</strong></div>
+          <div>Errors: <strong id="an-errors" style="color:var(--color-error);">0</strong></div>
+          <div>Warnings: <strong id="an-warns" style="color:var(--color-warn);">0</strong></div>
+          <div>Error Rate: <strong id="an-rate">0%</strong></div>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div>
+            <div class="sidebar-heading" style="margin-bottom:0.4rem;"><span>Top Services</span></div>
+            <div class="table-scroll" style="max-height: 260px; border:1px solid var(--border); border-radius:4px;">
+              <table>
+                <thead><tr><th>Service</th><th>Count</th><th>Share</th></tr></thead>
+                <tbody id="an-services-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <div class="sidebar-heading" style="margin-bottom:0.4rem;"><span>Top Recurring Errors</span></div>
+            <div class="table-scroll" style="max-height: 260px; border:1px solid var(--border); border-radius:4px;">
+              <table>
+                <thead><tr><th>Count</th><th>Message</th></tr></thead>
+                <tbody id="an-errors-tbody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1980,6 +2019,37 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
       document.getElementById('audit-modal').classList.remove('active');
     }
 
+    async function openAnalyticsModal() {
+      document.getElementById('analytics-modal').classList.add('active');
+      document.getElementById('an-services-tbody').innerHTML = '<tr><td colspan="3" style="text-align:center; color:var(--text-dim);">Loading...</td></tr>';
+      document.getElementById('an-errors-tbody').innerHTML = '<tr><td colspan="2" style="text-align:center; color:var(--text-dim);">Loading...</td></tr>';
+      try {
+        const resp = await fetch(apiUrl('/api/v1/analytics'));
+        if (!resp.ok) throw new Error('Analytics unavailable');
+        const data = await resp.json();
+        document.getElementById('an-total').innerText = (data.total_logs || 0).toLocaleString();
+        document.getElementById('an-errors').innerText = (data.total_errors || 0).toLocaleString();
+        document.getElementById('an-warns').innerText = (data.total_warns || 0).toLocaleString();
+        document.getElementById('an-rate').innerText = (data.error_rate_pct || 0) + '%';
+
+        const svcs = data.services || [];
+        document.getElementById('an-services-tbody').innerHTML = svcs.length
+          ? svcs.map(s => `<tr><td style="color:var(--color-info);">${escapeHtml(s.service)}</td><td>${s.count.toLocaleString()}</td><td>${s.share_pct}%</td></tr>`).join('')
+          : '<tr><td colspan="3" style="text-align:center; color:var(--text-dim);">No data</td></tr>';
+
+        const errs = data.top_errors || [];
+        document.getElementById('an-errors-tbody').innerHTML = errs.length
+          ? errs.map(e => `<tr><td style="color:var(--color-error); width:60px;">${e.count}</td><td style="word-break:break-word;">${escapeHtml(e.message)}</td></tr>`).join('')
+          : '<tr><td colspan="2" style="text-align:center; color:var(--text-dim);">No errors recorded</td></tr>';
+      } catch (err) {
+        document.getElementById('an-errors-tbody').innerHTML = `<tr><td colspan="2" style="color:var(--color-error);">${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    function closeAnalyticsModal() {
+      document.getElementById('analytics-modal').classList.remove('active');
+    }
+
     async function fetchRca() {
       try {
         const resp = await fetch(apiUrl('/api/v1/enterprise/incident/rca'));
@@ -2236,6 +2306,7 @@ static const std::string_view INDEX_HTML = R"SIFTLOG_HTML(
         closeShortcutsModal();
         closeIngestModal();
         closeAuditModal();
+        closeAnalyticsModal();
       }
     });
 

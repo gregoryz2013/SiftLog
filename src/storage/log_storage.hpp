@@ -65,6 +65,16 @@ struct StorageStats {
     std::vector<std::string> known_services;
 };
 
+struct AnalyticsResult {
+    size_t total_logs = 0;
+    size_t total_errors = 0;
+    size_t total_warns = 0;
+    std::unordered_map<std::string, size_t> service_totals;
+    std::unordered_map<std::string, size_t> level_totals;
+    std::vector<std::pair<std::string, size_t>> top_errors; // message -> count
+    double duration_ms = 0.0;
+};
+
 class LogStorage {
 public:
     explicit LogStorage(std::string data_dir,
@@ -84,6 +94,7 @@ public:
     std::shared_ptr<NoiseFilter> get_noise_filter() const { return noise_filter_; }
     std::shared_ptr<RcaEngine> get_rca_engine() const { return rca_engine_; }
     StorageStats get_stats();
+    AnalyticsResult get_analytics(int64_t from_ts = 0, int64_t to_ts = 0);
     void flush();
     void enforce_retention();
     void stop();

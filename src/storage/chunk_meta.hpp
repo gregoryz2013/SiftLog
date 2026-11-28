@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <unordered_set>
+#include <unordered_map>
 #include <cstdint>
 #include <nlohmann/json.hpp>
 
@@ -16,6 +17,8 @@ struct ChunkMeta {
     size_t count = 0;
     std::unordered_set<std::string> services;
     std::unordered_set<std::string> levels;
+    std::unordered_map<std::string, size_t> service_counts;
+    std::unordered_map<std::string, size_t> level_counts;
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
     bool has_bloom = false;
@@ -48,6 +51,8 @@ struct ChunkMeta {
             {"count", count},
             {"services", std::vector<std::string>(services.begin(), services.end())},
             {"levels", std::vector<std::string>(levels.begin(), levels.end())},
+            {"service_counts", service_counts},
+            {"level_counts", level_counts},
             {"uncompressed_bytes", uncompressed_bytes},
             {"compressed_bytes", compressed_bytes}
         };
@@ -75,6 +80,16 @@ struct ChunkMeta {
         if (j.contains("levels") && j["levels"].is_array()) {
             for (const auto& l : j["levels"]) {
                 m.levels.insert(l.get<std::string>());
+            }
+        }
+        if (j.contains("service_counts") && j["service_counts"].is_object()) {
+            for (auto& [k, v] : j["service_counts"].items()) {
+                if (v.is_number_unsigned()) m.service_counts[k] = v.get<size_t>();
+            }
+        }
+        if (j.contains("level_counts") && j["level_counts"].is_object()) {
+            for (auto& [k, v] : j["level_counts"].items()) {
+                if (v.is_number_unsigned()) m.level_counts[k] = v.get<size_t>();
             }
         }
         if (j.contains("bloom") && j["bloom"].is_string()) {

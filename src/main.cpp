@@ -32,6 +32,7 @@ int main(int argc, char* argv[]) {
     std::string data_dir = get_env("SIFTLOG_DATA_DIR", "./data");
     std::string tg_token = get_env("SIFTLOG_TG_TOKEN", "");
     std::string tg_chat_id = get_env("SIFTLOG_TG_CHAT_ID", "");
+    std::string alert_webhook = get_env("SIFTLOG_ALERT_WEBHOOK", "");
     size_t error_threshold = 10;
     int retention_days = 0;
     std::string auth_user = get_env("SIFTLOG_AUTH_USER", "");
@@ -87,6 +88,8 @@ int main(int argc, char* argv[]) {
             tg_token = argv[++i];
         } else if (arg == "--tg-chat-id" && i + 1 < argc) {
             tg_chat_id = argv[++i];
+        } else if (arg == "--alert-webhook" && i + 1 < argc) {
+            alert_webhook = argv[++i];
         } else if (arg == "--error-threshold" && i + 1 < argc) {
             error_threshold = std::stoull(argv[++i]);
         } else if (arg == "--retention-days" && i + 1 < argc) {
@@ -143,6 +146,7 @@ int main(int argc, char* argv[]) {
                       << "  --noise-window <sec>         FinOps noise deduplication sliding window in seconds (default: 5)\n"
                       << "  --tg-token <token>           Telegram Bot token for alerts\n"
                       << "  --tg-chat-id <id>            Telegram Chat ID for alerts\n"
+                      << "  --alert-webhook <url>        Webhook URL for error spike alerts (Slack, Discord, Alertmanager)\n"
                       << "  --error-threshold <n>        Error spike threshold per 60s window (default: 10)\n"
                       << "  --help, -h                   Show this help message\n";
             return 0;
@@ -182,7 +186,7 @@ int main(int argc, char* argv[]) {
     auto noise_filter = std::make_shared<NoiseFilter>(finops_enabled, noise_window);
     auto rca_engine = std::make_shared<RcaEngine>(60, 3);
     auto storage = std::make_shared<LogStorage>(data_dir, 20000, std::chrono::milliseconds(2000), retention_days, s3_client, noise_filter, rca_engine);
-    auto alert_manager = std::make_shared<AlertManager>(tg_token, tg_chat_id, error_threshold);
+    auto alert_manager = std::make_shared<AlertManager>(tg_token, tg_chat_id, error_threshold, 60, 60, alert_webhook);
     auto pii_masker = std::make_shared<PiiMasker>(mask_pii);
     auto updater = std::make_shared<EnterpriseUpdater>("0.5.0", update_url);
     auto audit_ledger = std::make_shared<AuditLedger>(audit_log_path);

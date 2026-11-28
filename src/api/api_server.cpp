@@ -269,6 +269,122 @@ void ApiServer::setup_routes() {
         res.status = 204;
     });
 
+    // OpenTelemetry OTLP/HTTP JSON Logs ingestion (/v1/logs)
+    svr_.Post("/v1/logs", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        nlohmann::json j;
+        try {
+            j = nlohmann::json::parse(req.body);
+        } catch (...) {
+            res.status = 400;
+            res.set_content(R"({"error":"invalid OTLP JSON"})", "application/json");
+            return;
+        }
+
+        std::vector<LogEntry> entries;
+        if (j.contains("resourceLogs") && j["resourceLogs"].is_array()) {
+            for (const auto& rl : j["resourceLogs"]) {
+                std::string svc = "otlp";
+                if (rl.contains("resource") && rl["resource"].contains("attributes") && rl["resource"]["attributes"].is_array()) {
+                    for (const auto& attr : rl["resource"]["attributes"]) {
+                        if (attr.value("key", "") == "service.name" && attr.contains("value") && attr["value"].contains("stringValue")) {
+                            svc = attr["value"]["stringValue"].get<std::string>();
+                        }
+                    }
+                }
+                if (!rl.contains("scopeLogs") || !rl["scopeLogs"].is_array()) continue;
+                for (const auto& sl : rl["scopeLogs"]) {
+                    if (!sl.contains("logRecords") || !sl["logRecords"].is_array()) continue;
+                    for (const auto& lr : sl["logRecords"]) {
+                        LogEntry entry;
+                        entry.service = svc;
+                        entry.timestamp = LogEntry::now_ms();
+                        if (lr.contains("timeUnixNano")) {
+                            try {
+                                std::string ns_str = lr["timeUnixNano"].is_string() ? lr["timeUnixNano"].get<std::string>() : lr["timeUnixNano"].dump();
+                                int64_t ns = std::stoll(ns_str);
+                                if (ns > 0) entry.timestamp = ns / 1000000LL;
+                            } catch (...) {}
+                        }
+                        if (lr.contains("severityText") && lr["severityText"].is_string()) {
+                            entry.level = LogEntry::normalize_level(lr["severityText"].get<std::string>());
+                        }
+                        if (lr.contains("body") && lr["body"].is_object() && lr["body"].contains("stringValue") && lr["body"]["stringValue"].is_string()) {
+                            entry.message = lr["body"]["stringValue"].get<std::string>();
+                        } else if (lr.contains("body")) {
+                            entry.message = lr["body"].dump();
+                        }
+                        if (lr.contains("traceId") && lr["traceId"].is_string()) {
+                            entry.trace_id = lr["traceId"].get<std::string>();
+                        }
+                        entry.raw_json = lr.dump();
+                        if (pii_masker_) pii_masker_->mask_entry(entry);
+                        alert_manager_->record_log(entry);
+                        entries.push_back(std::move(entry));
+                    }
+                }
+            }
+        }
+
+        if (!entries.empty()) {
+            storage_->append_batch(entries);
+        }
+        res.status = 200;
+        res.set_content("{}", "application/json");
+    });
+
+    // Elasticsearch Bulk API compatible ingestion (/_bulk and /:index/_bulk)
+    auto handle_es_bulk = [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        std::vector<LogEntry> entries;
+        std::string_view sv(req.body);
+        size_t start = 0;
+        bool expect_doc = false;
+        while (start < sv.size()) {
+            size_t end = sv.find('\n', start);
+            if (end == std::string_view::npos) end = sv.size();
+            std::string_view line = sv.substr(start, end - start);
+            start = end + 1;
+            if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+            if (line.empty()) continue;
+
+            try {
+                nlohmann::json item = nlohmann::json::parse(line);
+                if (!expect_doc && item.is_object() &&
+                    (item.contains("index") || item.contains("create") || item.contains("update") || item.contains("delete"))) {
+                    expect_doc = !item.contains("delete");
+                    continue;
+                }
+                expect_doc = false;
+                if (item.is_object()) {
+                    LogEntry entry = LogEntry::from_json(item);
+                    if (pii_masker_) pii_masker_->mask_entry(entry);
+                    alert_manager_->record_log(entry);
+                    entries.push_back(std::move(entry));
+                }
+            } catch (...) {
+                expect_doc = false;
+            }
+        }
+
+        if (!entries.empty()) {
+            storage_->append_batch(entries);
+        }
+        nlohmann::json resp = {
+            {"took", 1},
+            {"errors", false},
+            {"items", nlohmann::json::array()}
+        };
+        res.status = 200;
+        res.set_content(resp.dump(), "application/json");
+    };
+    svr_.Post("/_bulk", handle_es_bulk);
+    svr_.Post(R"(/([^/]+)/_bulk)", handle_es_bulk);
+
     // Loki-compatible Read API for Grafana Loki Data Source
     svr_.Get("/loki/api/v1/labels", [this](const httplib::Request& req, httplib::Response& res) {
         if (!check_auth(req, res)) return;

@@ -6,7 +6,7 @@
 
 Single-binary C++20 log ingestion and search engine. Stores logs in Zstandard-compressed chunks with sparse metadata indexing and per-chunk Bloom filters, keeping idle RAM usage around 10 MB without inverted full-text indexes or JVM overhead.
 
-Includes an embedded web UI, structured query parser, automatic PII/secret redaction, crash-safe WAL ingestion, and drop-in compatibility with **Grafana** (Loki data source), **Vector**, **Fluent Bit**, and **Promtail**.
+Includes an embedded web UI, structured query parser, automatic PII/secret redaction, crash-safe WAL ingestion, and drop-in compatibility with **Grafana** (Loki data source), **OpenTelemetry** (`/v1/logs`), **Elasticsearch Bulk** (`/_bulk`), **Vector**, **Fluent Bit**, and **Promtail**.
 
 ![SiftLog Web Dashboard](docs/dashboard.png)
 
@@ -67,9 +67,9 @@ python3 tests/benchmark_ingest.py
 - **Noise Deduplication (Lossless for Errors):** Sliding-window collapsing applies only to untagged `INFO`/`DEBUG` noise (e.g. repeated health checks) with `repeat_count` counters; `WARN`, `ERROR`, `FATAL`, and traced requests (`trace_id`) are never collapsed. Can be disabled completely via `--no-noise-dedup`.
 - **Distributed Trace Waterfall & RCA:** Log-based trace stitching (`trace_id`) with Gantt waterfall view and automated root-cause cascade detection.
 - **PII & Secret Redaction:** Masks passwords, bearer/JWT tokens, API keys, payment cards, and passport/SNILS numbers before writing to disk (toggleable via `--no-mask-pii` if raw logs are required).
-- **Grafana & Shippers Compatible:** Drop-in Loki Push (`/loki/api/v1/push`) and Loki Read API (`/loki/api/v1/query_range`, `/loki/api/v1/labels`, `/ready`) — connect **Grafana** directly as a Loki data source alongside **Vector** and **Fluent Bit**.
+- **Grafana & Multi-Protocol Ingestion:** Native support for **OpenTelemetry OTLP/HTTP** (`POST /v1/logs`), **Elasticsearch Bulk** (`POST /_bulk`), **Loki Push/Read API** (`/loki/api/v1/push`, `/loki/api/v1/query_range`, `/loki/api/v1/labels`, `/ready`), JSON arrays, and NDJSON — works with Grafana, Vector, Fluent Bit, Filebeat, and OTel Collector.
 - **S3 Offloading & Retention:** Non-blocking chunk sync to S3-compatible storage (AWS S3, MinIO, Yandex Cloud) and automated pruning (`--retention-days`).
-- **Alerting & Security:** Sliding-window error spike detection with Telegram Bot API notifications, HTTP Basic Auth, `X-Forwarded-For` / `X-Real-IP` support, `/health` probe, and SHA-256 hash-chained audit trail.
+- **Alerting & Security:** Sliding-window error spike detection with **Telegram** and **Webhook** notifications (Slack, Discord, Alertmanager bridge), HTTP Basic Auth, `X-Forwarded-For` / `X-Real-IP` support, `/health` probe, and SHA-256 hash-chained audit trail.
 
 ## Durability & Zero Data Lock-in
 
@@ -88,8 +88,8 @@ You can use SiftLog's built-in UI or connect it directly to **Grafana** alongsid
 
 ## Known Limitations & Trade-offs
 
-- **Single-node architecture:** SiftLog does not currently support multi-node clustering or automatic replication. For high availability, run behind a reverse proxy with disk snapshots or S3 offloading.
-- **Query language scope:** The query parser supports boolean text search (`AND`, `OR`, `NOT`), exact phrases, and `key:value` filters. It does not yet support aggregation pipelines (`stats`, `count by`, `rate`, regex extraction on the fly) like Grafana Loki or VictoriaLogs.
+- **Single-node architecture:** SiftLog does not currently support multi-node clustering or automatic replication. For multi-terabyte clusters, multi-tenancy RBAC, or full analytical LogsQL pipelines (`stats`, `rate`, `count by`), tools like **VictoriaLogs** or **ClickHouse** are a better fit. SiftLog focuses on minimal resource usage (~10 MB RAM), zero-ops single-binary deployment, built-in PII redaction, and instant startup on small/medium infrastructure.
+- **Query language scope:** The query parser supports boolean text search (`AND`, `OR`, `NOT`), exact phrases, and `key:value` filters. It does not yet support aggregation pipelines (`stats`, `count by`, `rate`, regex extraction on the fly).
 - **Wide-range scans:** Bloom filters skip irrelevant chunks for specific tokens/IDs, but queries without selective terms (e.g., scanning all `INFO` logs across 100 GB of matching chunks) still decompress and scan matching Zstd chunks.
 
 ## Log Shipping Integrations
@@ -158,10 +158,13 @@ level = "{{ level }}"
 | `--error-threshold` | `SIFTLOG_ERROR_THRESHOLD` | `10` | Error spike threshold per service per 60s window |
 | `--tg-token` | `SIFTLOG_TG_TOKEN` | `""` | Telegram Bot API token for alerts |
 | `--tg-chat-id` | `SIFTLOG_TG_CHAT_ID` | `""` | Telegram chat ID |
+| `--alert-webhook` | `SIFTLOG_ALERT_WEBHOOK` | `""` | Generic webhook URL for alerts (Slack, Discord, Alertmanager) |
 
 ## API Reference
 
 - `POST /api/v1/logs` — Ingest single JSON object, JSON array, or NDJSON (`application/x-ndjson`).
+- `POST /v1/logs` — OpenTelemetry OTLP/HTTP JSON logs ingestion.
+- `POST /_bulk` / `POST /{index}/_bulk` — Elasticsearch Bulk API compatible ingestion.
 - `POST /loki/api/v1/push` — Loki-compatible push endpoint (returns `204 No Content`).
 - `GET /loki/api/v1/query_range` / `GET /loki/api/v1/query` — Grafana Loki-compatible log query API.
 - `GET /loki/api/v1/labels` / `GET /loki/api/v1/label/{name}/values` — Label discovery for Grafana.

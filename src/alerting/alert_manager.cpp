@@ -23,12 +23,14 @@ AlertManager::AlertManager(std::string tg_token,
                            std::string tg_chat_id,
                            size_t error_threshold,
                            int window_seconds,
-                           int cooldown_seconds)
+                           int cooldown_seconds,
+                           std::string webhook_url)
     : tg_token_(std::move(tg_token)),
       tg_chat_id_(std::move(tg_chat_id)),
       error_threshold_(error_threshold),
       window_seconds_(window_seconds),
-      cooldown_seconds_(cooldown_seconds) {}
+      cooldown_seconds_(cooldown_seconds),
+      webhook_url_(std::move(webhook_url)) {}
 
 void AlertManager::record_log(const LogEntry& log) {
     if (log.level != "ERROR" && log.level != "FATAL") {
@@ -106,6 +108,11 @@ void AlertManager::trigger_alert(const std::string& service, size_t error_count,
             send_telegram_alert(service, error_count, sample_error);
         }).detach();
     }
+    if (!webhook_url_.empty()) {
+        std::thread([this, service, error_count, sample_error]() {
+            send_webhook_alert(service, error_count, sample_error);
+        }).detach();
+    }
 }
 
 void AlertManager::send_telegram_alert(const std::string& service, size_t count, const std::string& sample_error) {
@@ -178,4 +185,62 @@ void AlertManager::send_telegram_alert(const std::string& service, size_t count,
 std::vector<AlertEvent> AlertManager::get_recent_alerts() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return recent_alerts_;
+}
+
+void AlertManager::send_webhook_alert(const std::string& service, size_t count, const std::string& sample_error) {
+    nlohmann::json payload = {
+        {"source", "siftlog"},
+        {"service", service},
+        {"error_count", count},
+        {"window_seconds", window_seconds_},
+        {"threshold", error_threshold_},
+        {"sample_error", sample_error.substr(0, 300)},
+        {"text", "[SiftLog Alert] service=" + service + " errors=" + std::to_string(count) +
+                 "/" + std::to_string(window_seconds_) + "s: " + sample_error.substr(0, 200)}
+    };
+    std::string body = payload.dump();
+
+#if defined(_WIN32)
+    std::string url = webhook_url_;
+    bool https = (url.rfind("https://", 0) == 0);
+    size_t host_start = https ? 8 : (url.rfind("http://", 0) == 0 ? 7 : 0);
+    if (host_start == 0) return;
+
+    size_t slash_pos = url.find('/', host_start);
+    std::string host_port = (slash_pos == std::string::npos) ? url.substr(host_start) : url.substr(host_start, slash_pos - host_start);
+    std::string path = (slash_pos == std::string::npos) ? "/" : url.substr(slash_pos);
+    INTERNET_PORT port = https ? INTERNET_DEFAULT_HTTPS_PORT : INTERNET_DEFAULT_HTTP_PORT;
+    std::string host = host_port;
+    size_t colon = host_port.find(':');
+    if (colon != std::string::npos) {
+        host = host_port.substr(0, colon);
+        try { port = static_cast<INTERNET_PORT>(std::stoi(host_port.substr(colon + 1))); } catch (...) {}
+    }
+
+    HINTERNET hSession = WinHttpOpen(L"SiftLog/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!hSession) return;
+    HINTERNET hConnect = WinHttpConnect(hSession, to_wide_str(host).c_str(), port, 0);
+    if (hConnect) {
+        DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
+        HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"POST", to_wide_str(path).c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+        if (hRequest) {
+            LPCWSTR headers = L"Content-Type: application/json\r\n";
+            if (WinHttpSendRequest(hRequest, headers, static_cast<DWORD>(-1L), const_cast<char*>(body.data()), static_cast<DWORD>(body.size()), static_cast<DWORD>(body.size()), 0)) {
+                WinHttpReceiveResponse(hRequest, nullptr);
+            }
+            WinHttpCloseHandle(hRequest);
+        }
+        WinHttpCloseHandle(hConnect);
+    }
+    WinHttpCloseHandle(hSession);
+#else
+    std::string escaped_body;
+    for (char c : body) {
+        if (c == '\'') escaped_body += "'\\''";
+        else escaped_body += c;
+    }
+    std::string cmd = "curl -s -m 5 -X POST '" + webhook_url_ + "' -H 'Content-Type: application/json' -d '" + escaped_body + "' >/dev/null 2>&1";
+    int ret = std::system(cmd.c_str());
+    (void)ret;
+#endif
 }

@@ -302,6 +302,35 @@ def main():
         assert len(q_data["data"]["result"]) >= 1
         print("PASS: Grafana Loki Read API (/ready, /loki/api/v1/labels, /loki/api/v1/query_range)")
 
+        # Test OpenTelemetry OTLP/HTTP JSON ingestion (/v1/logs)
+        otlp_payload = {
+            "resourceLogs": [{
+                "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "otlp-checkout"}}]},
+                "scopeLogs": [{"logRecords": [{
+                    "timeUnixNano": str(int(time.time() * 1000000000)),
+                    "severityText": "ERROR",
+                    "body": {"stringValue": "OTLP payment validation error"},
+                    "traceId": "otlp-trc-42"
+                }]}]
+            }]
+        }
+        status, _ = http_post_json("/v1/logs", otlp_payload)
+        assert status == 200
+        status, res = http_get("/api/v1/search?service=otlp-checkout")
+        assert status == 200 and json.loads(res)["total_matched"] == 1
+        print("PASS: OpenTelemetry OTLP/HTTP JSON ingestion (/v1/logs)")
+
+        # Test Elasticsearch _bulk API compatibility
+        es_bulk = (
+            '{"index":{"_index":"app-logs"}}\n'
+            '{"service":"es-bulk-svc","level":"WARN","message":"Bulk ingestion test event"}\n'
+        ).encode("utf-8")
+        status, raw_resp = http_post_raw("/_bulk", es_bulk, "application/x-ndjson")
+        assert status == 200 and json.loads(raw_resp)["errors"] is False
+        status, res = http_get("/api/v1/search?service=es-bulk-svc")
+        assert status == 200 and json.loads(res)["total_matched"] == 1
+        print("PASS: Elasticsearch Bulk API ingestion (/_bulk)")
+
         # Test RCA Endpoint
         status, res = http_get("/api/v1/enterprise/incident/rca")
         assert status == 200

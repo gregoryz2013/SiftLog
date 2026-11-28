@@ -64,18 +64,27 @@ python3 tests/benchmark_ingest.py
 - **Low Memory Footprint:** ~10 MB RAM idle, ~37 MB under load; runs comfortably on a 1 vCPU / 1 GB VPS (2–4 GB RAM recommended for multi-terabyte archives).
 - **Zero External Dependencies:** Single statically linked binary (~2.2 MB) with embedded web dashboard.
 - **Structured Query Syntax:** Supports exact phrases (`"connection refused"`), field filters (`service:auth level:ERROR`), and boolean operators (`AND`, `OR`, `NOT`, `!`). All JSON tokens (including nested fields) are indexed in per-chunk Bloom filters for fast chunk pruning.
-- **Noise Deduplication:** Sliding-window aggregation collapsing repeated identical logs into single entries with `repeat_count` counters.
+- **Noise Deduplication (Lossless for Errors):** Sliding-window collapsing applies only to untagged `INFO`/`DEBUG` noise (e.g. repeated health checks) with `repeat_count` counters; `WARN`, `ERROR`, `FATAL`, and traced requests (`trace_id`) are never collapsed. Can be disabled completely via `--no-noise-dedup`.
 - **Distributed Trace Waterfall & RCA:** Log-based trace stitching (`trace_id`) with Gantt waterfall view and automated root-cause cascade detection.
-- **PII & Secret Redaction:** Automatically masks passwords, bearer/JWT tokens, API keys, payment cards, and passport/SNILS numbers before writing to disk.
-- **Fluent Bit & Vector Compatible:** Native Loki Push API (`/loki/api/v1/push`), JSON arrays, and NDJSON (`/api/v1/logs`).
+- **PII & Secret Redaction:** Masks passwords, bearer/JWT tokens, API keys, payment cards, and passport/SNILS numbers before writing to disk (toggleable via `--no-mask-pii` if raw logs are required).
+- **Grafana & Shippers Compatible:** Drop-in Loki Push (`/loki/api/v1/push`) and Loki Read API (`/loki/api/v1/query_range`, `/loki/api/v1/labels`, `/ready`) — connect **Grafana** directly as a Loki data source alongside **Vector** and **Fluent Bit**.
 - **S3 Offloading & Retention:** Non-blocking chunk sync to S3-compatible storage (AWS S3, MinIO, Yandex Cloud) and automated pruning (`--retention-days`).
 - **Alerting & Security:** Sliding-window error spike detection with Telegram Bot API notifications, HTTP Basic Auth, `X-Forwarded-For` / `X-Real-IP` support, `/health` probe, and SHA-256 hash-chained audit trail.
 
-## Durability & Crash Safety
+## Durability & Zero Data Lock-in
 
 - **Write-Ahead Log (WAL):** Incoming log batches are appended and flushed to `<data-dir>/wal.log` before ingestion returns `200 OK`.
 - **Atomic Chunk Commits:** Background flushes rotate `wal.log` → `wal.flushing`, write compressed data to `.zst.tmp` and metadata to `.meta.tmp`, atomically `rename` them into place, and only then delete `wal.flushing`.
 - **Startup Recovery:** On startup, any leftover `.tmp` files are cleaned up and any uncommitted records in `wal.flushing` or `wal.log` are automatically replayed into compressed chunks.
+- **Open Standard Format (Easy Migration):** Each `.zst` chunk is standard Zstandard-compressed NDJSON (`zstdcat`). If you ever outgrow a single node and migrate to ClickHouse or VictoriaLogs, export all logs with one command: `zstd -dc data/*/*.zst > export.ndjson`.
+
+## Grafana Integration
+
+You can use SiftLog's built-in UI or connect it directly to **Grafana** alongside Prometheus metrics:
+
+1. In Grafana, go to **Connections → Data sources → Add data source → Loki**.
+2. Set URL to `http://<siftlog-host>:8080`.
+3. Click **Save & test** — `/ready`, `/loki/api/v1/labels`, and `/loki/api/v1/query_range` work out of the box.
 
 ## Known Limitations & Trade-offs
 

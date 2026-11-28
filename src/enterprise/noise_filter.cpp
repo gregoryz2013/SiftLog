@@ -17,6 +17,12 @@ std::vector<LogEntry> NoiseFilter::dedup_batch(std::vector<LogEntry> entries) {
     for (auto& entry : entries) {
         if (entry.repeat_count == 0) entry.repeat_count = 1;
 
+        // Never collapse errors, warnings, or traced requests to preserve full debugging context
+        if (entry.level == "ERROR" || entry.level == "FATAL" || entry.level == "WARN" || !entry.trace_id.empty()) {
+            result.push_back(std::move(entry));
+            continue;
+        }
+
         // Check if an identical entry exists within recent output window
         bool deduplicated = false;
         for (auto it = result.rbegin(); it != result.rend(); ++it) {

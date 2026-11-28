@@ -3,6 +3,7 @@
 #include "../utils/base64.hpp"
 #include <iostream>
 #include <iomanip>
+#include <map>
 #include <sstream>
 
 ApiServer::ApiServer(std::shared_ptr<LogStorage> storage,
@@ -85,6 +86,9 @@ void ApiServer::setup_routes() {
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_header("Cache-Control", "no-cache");
         res.set_content(R"({"status":"ok"})", "application/json");
+    });
+    svr_.Get("/ready", [](const httplib::Request&, httplib::Response& res) {
+        res.set_content("ready\n", "text/plain");
     });
 
     // Web Dashboard
@@ -264,6 +268,115 @@ void ApiServer::setup_routes() {
         // Standard Loki push response is 204 No Content
         res.status = 204;
     });
+
+    // Loki-compatible Read API for Grafana Loki Data Source
+    svr_.Get("/loki/api/v1/labels", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_content(R"({"status":"success","data":["service","level"]})", "application/json");
+    });
+
+    svr_.Get(R"(/loki/api/v1/label/([^/]+)/values)", [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+        std::string label = req.matches[1];
+        nlohmann::json vals = nlohmann::json::array();
+        if (label == "service" || label == "app" || label == "job") {
+            for (const auto& s : storage_->get_stats().known_services) {
+                vals.push_back(s);
+            }
+        } else if (label == "level") {
+            vals = {"INFO", "WARN", "ERROR", "DEBUG", "FATAL"};
+        }
+        res.set_content(nlohmann::json{{"status", "success"}, {"data", vals}}.dump(), "application/json");
+    });
+
+    auto handle_loki_query = [this](const httplib::Request& req, httplib::Response& res) {
+        if (!check_auth(req, res)) return;
+        res.set_header("Access-Control-Allow-Origin", "*");
+
+        SearchParams params;
+        params.limit = 500;
+        if (req.has_param("limit")) {
+            try {
+                params.limit = std::clamp<size_t>(std::stoull(req.get_param_value("limit")), 1, 1000);
+            } catch (...) {}
+        }
+
+        auto parse_loki_ts_ms = [](const std::string& val) -> int64_t {
+            try {
+                int64_t n = std::stoll(val);
+                if (n > 1000000000000000LL) return n / 1000000LL; // nanoseconds -> ms
+                if (n > 100000000000LL) return n;                  // milliseconds
+                return n * 1000LL;                                 // seconds -> ms
+            } catch (...) { return 0; }
+        };
+        if (req.has_param("start")) params.from_ts = parse_loki_ts_ms(req.get_param_value("start"));
+        if (req.has_param("end")) params.to_ts = parse_loki_ts_ms(req.get_param_value("end"));
+
+        if (req.has_param("query")) {
+            std::string lql = req.get_param_value("query");
+            auto extract_label = [&](const std::string& key) -> std::string {
+                for (const std::string& pat : {key + "=\"", key + "=~\"", key + "='"}) {
+                    auto p = lql.find(pat);
+                    if (p != std::string::npos) {
+                        size_t s = p + pat.size();
+                        char q = pat.back();
+                        size_t e = lql.find(q, s);
+                        if (e != std::string::npos) return lql.substr(s, e - s);
+                    }
+                }
+                return "";
+            };
+            std::string svc = extract_label("service");
+            if (svc.empty()) svc = extract_label("app");
+            if (!svc.empty()) params.service = svc;
+
+            std::string lvl = extract_label("level");
+            if (!lvl.empty()) params.level = LogEntry::normalize_level(lvl);
+
+            auto pipe_pos = lql.find("|=");
+            if (pipe_pos != std::string::npos) {
+                auto q1 = lql.find('"', pipe_pos);
+                auto q2 = (q1 != std::string::npos) ? lql.find('"', q1 + 1) : std::string::npos;
+                if (q1 != std::string::npos && q2 != std::string::npos) {
+                    params.query = lql.substr(q1 + 1, q2 - q1 - 1);
+                }
+            }
+        }
+
+        SearchResult sr = storage_->search(params);
+        std::map<std::pair<std::string, std::string>, nlohmann::json> streams;
+        for (const auto& log : sr.logs) {
+            auto key = std::make_pair(log.service, log.level);
+            if (streams.find(key) == streams.end()) {
+                streams[key] = nlohmann::json::array();
+            }
+            std::string ns = std::to_string(log.timestamp * 1000000LL);
+            std::string line = log.raw_json.empty() ? log.message : log.raw_json;
+            streams[key].push_back({ns, line});
+        }
+
+        nlohmann::json result_arr = nlohmann::json::array();
+        for (auto& [k, vals] : streams) {
+            result_arr.push_back({
+                {"stream", {{"service", k.first}, {"level", k.second}}},
+                {"values", std::move(vals)}
+            });
+        }
+
+        nlohmann::json resp = {
+            {"status", "success"},
+            {"data", {
+                {"resultType", "streams"},
+                {"result", result_arr}
+            }}
+        };
+        res.status = 200;
+        res.set_content(resp.dump(), "application/json");
+    };
+    svr_.Get("/loki/api/v1/query_range", handle_loki_query);
+    svr_.Get("/loki/api/v1/query", handle_loki_query);
 
     // Search API
     svr_.Get("/api/v1/search", [this](const httplib::Request& req, httplib::Response& res) {

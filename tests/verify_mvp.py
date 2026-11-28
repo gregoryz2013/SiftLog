@@ -290,6 +290,18 @@ def main():
         assert trc_data.get("spans_count") == 2
         print("PASS: distributed trace waterfall API (/api/v1/trace)")
 
+        # Test Loki Read API (Grafana Loki Data Source compatibility)
+        status, ready_body = http_get("/ready")
+        assert status == 200 and b"ready" in ready_body
+        status, labels_body = http_get("/loki/api/v1/labels")
+        assert status == 200 and "service" in json.loads(labels_body)["data"]
+        status, q_body = http_get('/loki/api/v1/query_range?query=' + urllib.parse.quote('{service="worker-pool"} |= "panicked"'))
+        assert status == 200
+        q_data = json.loads(q_body)
+        assert q_data["status"] == "success"
+        assert len(q_data["data"]["result"]) >= 1
+        print("PASS: Grafana Loki Read API (/ready, /loki/api/v1/labels, /loki/api/v1/query_range)")
+
         # Test RCA Endpoint
         status, res = http_get("/api/v1/enterprise/incident/rca")
         assert status == 200

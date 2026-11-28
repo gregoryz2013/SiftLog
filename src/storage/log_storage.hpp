@@ -15,6 +15,8 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <list>
+#include <unordered_map>
 
 struct SearchParams {
     std::string service;
@@ -62,6 +64,8 @@ struct StorageStats {
     size_t total_chunks_on_disk = 0;
     size_t disk_bytes_compressed = 0;
     size_t disk_bytes_uncompressed = 0;
+    size_t cache_used_bytes = 0;
+    size_t cache_budget_bytes = 0;
     std::vector<std::string> known_services;
 };
 
@@ -83,7 +87,8 @@ public:
                         int retention_days = 0,
                         std::shared_ptr<S3Client> s3_client = nullptr,
                         std::shared_ptr<NoiseFilter> noise_filter = nullptr,
-                        std::shared_ptr<RcaEngine> rca_engine = nullptr);
+                        std::shared_ptr<RcaEngine> rca_engine = nullptr,
+                        size_t cache_mb = 256);
     ~LogStorage();
 
     void append(const LogEntry& entry);
@@ -107,7 +112,10 @@ private:
 
     static std::string get_date_string(int64_t ts_ms);
     static bool matches_filter(const LogEntry& log, const SearchParams& params, const LogSqlParser* parser = nullptr);
-    static std::vector<LogEntry> search_chunk_file(const ChunkMeta& meta, const SearchParams& params, const LogSqlParser* parser = nullptr);
+    std::vector<LogEntry> search_chunk_file(const ChunkMeta& meta, const SearchParams& params, const LogSqlParser* parser = nullptr);
+    std::shared_ptr<const std::vector<LogEntry>> get_cached_chunk(const std::string& chunk_id);
+    void put_cached_chunk(const std::string& chunk_id, std::shared_ptr<const std::vector<LogEntry>> entries, size_t approx_bytes);
+    void evict_cached_chunk(const std::string& chunk_id);
 
     std::string data_dir_;
     std::string wal_path_;
@@ -132,4 +140,15 @@ private:
     std::shared_ptr<NoiseFilter> noise_filter_;
     std::shared_ptr<RcaEngine> rca_engine_;
     std::chrono::steady_clock::time_point last_retention_check_;
+
+    struct CachedChunk {
+        std::string id;
+        std::shared_ptr<const std::vector<LogEntry>> entries;
+        size_t bytes = 0;
+    };
+    size_t cache_budget_bytes_ = 0;
+    size_t cache_used_bytes_ = 0;
+    std::mutex cache_mutex_;
+    std::list<CachedChunk> cache_lru_;
+    std::unordered_map<std::string, std::list<CachedChunk>::iterator> cache_map_;
 };

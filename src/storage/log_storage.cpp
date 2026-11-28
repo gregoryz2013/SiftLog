@@ -17,7 +17,8 @@ LogStorage::LogStorage(std::string data_dir,
                        int retention_days,
                        std::shared_ptr<S3Client> s3_client,
                        std::shared_ptr<NoiseFilter> noise_filter,
-                       std::shared_ptr<RcaEngine> rca_engine)
+                       std::shared_ptr<RcaEngine> rca_engine,
+                       size_t cache_mb)
     : data_dir_(std::move(data_dir)),
       wal_path_((fs::path(data_dir_) / "wal.log").string()),
       wal_flushing_path_((fs::path(data_dir_) / "wal.flushing").string()),
@@ -27,7 +28,8 @@ LogStorage::LogStorage(std::string data_dir,
       s3_client_(std::move(s3_client)),
       noise_filter_(std::move(noise_filter)),
       rca_engine_(std::move(rca_engine)),
-      last_retention_check_(std::chrono::steady_clock::now()) {
+      last_retention_check_(std::chrono::steady_clock::now()),
+      cache_budget_bytes_(cache_mb * 1024ULL * 1024ULL) {
     if (!noise_filter_) {
         noise_filter_ = std::make_shared<NoiseFilter>(true, 5);
     }
@@ -139,6 +141,7 @@ void LogStorage::enforce_retention() {
 
             total_compressed_bytes_ -= it->compressed_bytes;
             total_uncompressed_bytes_ -= it->uncompressed_bytes;
+            evict_cached_chunk(it->id);
             it = chunks_.erase(it);
             ++pruned_count;
         } else {
@@ -326,6 +329,11 @@ void LogStorage::flush_batch_to_disk(const std::vector<LogEntry>& batch, const s
         fs::remove(wal_flushing_path, ec);
     }
 
+    if (cache_budget_bytes_ > 0 && uncompressed_size * 2 <= cache_budget_bytes_) {
+        auto cached_vec = std::make_shared<std::vector<LogEntry>>(batch);
+        put_cached_chunk(chunk_id, std::move(cached_vec), uncompressed_size * 2);
+    }
+
     {
         std::lock_guard<std::mutex> lock(metadata_mutex_);
         total_compressed_bytes_ += compressed_size;
@@ -437,8 +445,57 @@ bool LogStorage::matches_filter(const LogEntry& log, const SearchParams& params,
     return true;
 }
 
+std::shared_ptr<const std::vector<LogEntry>> LogStorage::get_cached_chunk(const std::string& chunk_id) {
+    if (cache_budget_bytes_ == 0) return nullptr;
+    std::lock_guard<std::mutex> lock(cache_mutex_);
+    auto it = cache_map_.find(chunk_id);
+    if (it == cache_map_.end()) return nullptr;
+    cache_lru_.splice(cache_lru_.begin(), cache_lru_, it->second);
+    return it->second->entries;
+}
+
+void LogStorage::put_cached_chunk(const std::string& chunk_id, std::shared_ptr<const std::vector<LogEntry>> entries, size_t approx_bytes) {
+    if (cache_budget_bytes_ == 0 || approx_bytes > cache_budget_bytes_) return;
+    std::lock_guard<std::mutex> lock(cache_mutex_);
+    auto existing = cache_map_.find(chunk_id);
+    if (existing != cache_map_.end()) {
+        cache_used_bytes_ -= existing->second->bytes;
+        cache_lru_.erase(existing->second);
+        cache_map_.erase(existing);
+    }
+    while (!cache_lru_.empty() && cache_used_bytes_ + approx_bytes > cache_budget_bytes_) {
+        auto& back = cache_lru_.back();
+        cache_used_bytes_ -= back.bytes;
+        cache_map_.erase(back.id);
+        cache_lru_.pop_back();
+    }
+    cache_lru_.push_front(CachedChunk{chunk_id, std::move(entries), approx_bytes});
+    cache_map_[chunk_id] = cache_lru_.begin();
+    cache_used_bytes_ += approx_bytes;
+}
+
+void LogStorage::evict_cached_chunk(const std::string& chunk_id) {
+    std::lock_guard<std::mutex> lock(cache_mutex_);
+    auto it = cache_map_.find(chunk_id);
+    if (it == cache_map_.end()) return;
+    cache_used_bytes_ -= it->second->bytes;
+    cache_lru_.erase(it->second);
+    cache_map_.erase(it);
+}
+
 std::vector<LogEntry> LogStorage::search_chunk_file(const ChunkMeta& meta, const SearchParams& params, const LogSqlParser* parser) {
     std::vector<LogEntry> matches;
+
+    // Fast path: serve directly from hot in-memory LRU cache (zero disk I/O, zero Zstd, zero JSON parse)
+    if (auto cached = get_cached_chunk(meta.id)) {
+        for (const auto& entry : *cached) {
+            if (matches_filter(entry, params, parser)) {
+                matches.push_back(entry);
+            }
+        }
+        return matches;
+    }
+
     std::ifstream file(meta.chunk_file_path, std::ios::binary);
     if (!file) return matches;
 
@@ -463,6 +520,12 @@ std::vector<LogEntry> LogStorage::search_chunk_file(const ChunkMeta& meta, const
         return matches;
     }
 
+    bool should_cache = (cache_budget_bytes_ > 0 && d_size * 2 <= cache_budget_bytes_);
+    std::vector<LogEntry> parsed_all;
+    if (should_cache) {
+        parsed_all.reserve(meta.count > 0 ? meta.count : 1024);
+    }
+
     std::vector<std::string> req_terms = parser ? parser->required_terms() : std::vector<std::string>{};
     auto ci_contains = [](std::string_view hay, std::string_view needle) -> bool {
         if (needle.empty()) return true;
@@ -482,27 +545,36 @@ std::vector<LogEntry> LogStorage::search_chunk_file(const ChunkMeta& meta, const
         start = end + 1;
         if (line.empty()) continue;
 
-        // Zero-allocation fast line pre-filter before expensive JSON parsing
-        if (!params.service.empty() && line.find(params.service) == std::string_view::npos) continue;
-        if (!params.level.empty() && !ci_contains(line, params.level)) continue;
-        bool terms_ok = true;
-        for (const auto& t : req_terms) {
-            if (t.find('*') == std::string::npos && !ci_contains(line, t)) {
-                terms_ok = false;
-                break;
+        if (!should_cache) {
+            // Zero-allocation fast line pre-filter when chunk won't be cached
+            if (!params.service.empty() && line.find(params.service) == std::string_view::npos) continue;
+            if (!params.level.empty() && !ci_contains(line, params.level)) continue;
+            bool terms_ok = true;
+            for (const auto& t : req_terms) {
+                if (t.find('*') == std::string::npos && !ci_contains(line, t)) {
+                    terms_ok = false;
+                    break;
+                }
             }
+            if (!terms_ok) continue;
         }
-        if (!terms_ok) continue;
 
         try {
             nlohmann::json j = nlohmann::json::parse(line);
             LogEntry entry = LogEntry::from_json(j);
 
             if (matches_filter(entry, params, parser)) {
-                matches.push_back(std::move(entry));
+                matches.push_back(entry);
+            }
+            if (should_cache) {
+                parsed_all.push_back(std::move(entry));
             }
         } catch (...) {
         }
+    }
+
+    if (should_cache && !parsed_all.empty()) {
+        put_cached_chunk(meta.id, std::make_shared<const std::vector<LogEntry>>(std::move(parsed_all)), d_size * 2);
     }
 
     return matches;
@@ -690,6 +762,11 @@ StorageStats LogStorage::get_stats() {
     stats.total_logs_ingested = total_logs_ingested_.load(std::memory_order_relaxed);
     stats.disk_bytes_compressed = total_compressed_bytes_.load(std::memory_order_relaxed);
     stats.disk_bytes_uncompressed = total_uncompressed_bytes_.load(std::memory_order_relaxed);
+    {
+        std::lock_guard<std::mutex> clock(cache_mutex_);
+        stats.cache_used_bytes = cache_used_bytes_;
+        stats.cache_budget_bytes = cache_budget_bytes_;
+    }
 
     std::lock_guard<std::mutex> lock(metadata_mutex_);
     stats.total_chunks_on_disk = chunks_.size();

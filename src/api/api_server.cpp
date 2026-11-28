@@ -786,6 +786,8 @@ void ApiServer::setup_routes() {
             {"total_chunks_on_disk", total_chunks},
             {"disk_bytes_compressed", bytes_comp},
             {"disk_bytes_uncompressed", bytes_uncomp},
+            {"cache_used_bytes", stats.cache_used_bytes},
+            {"cache_budget_bytes", stats.cache_budget_bytes},
             {"compression_ratio", ratio_ss.str()},
             {"services", std::vector<std::string>(merged_services.begin(), merged_services.end())},
             {"pii_masking", pii_masker_ ? pii_masker_->is_enabled() : false},
@@ -901,6 +903,9 @@ void ApiServer::setup_routes() {
             << "# HELP siftlog_disk_bytes_compressed Compressed bytes stored on disk\n"
             << "# TYPE siftlog_disk_bytes_compressed gauge\n"
             << "siftlog_disk_bytes_compressed " << stats.disk_bytes_compressed << "\n"
+            << "# HELP siftlog_cache_used_bytes Hot LRU RAM cache bytes used\n"
+            << "# TYPE siftlog_cache_used_bytes gauge\n"
+            << "siftlog_cache_used_bytes " << stats.cache_used_bytes << "\n"
             << "# HELP siftlog_compression_ratio Zstandard compression ratio\n"
             << "# TYPE siftlog_compression_ratio gauge\n"
             << "siftlog_compression_ratio " << std::fixed << std::setprecision(2) << ratio << "\n"

@@ -63,7 +63,8 @@ python3 tests/benchmark_ingest.py
 - **Multi-Node Cluster & Replication:** Scale horizontally across multiple nodes using `--peers` (parallel federated search, analytics, and distributed trace stitching across the cluster) and `--replicate-to` (async write replication for high availability).
 - **Fast Search Without Full Decompression:** Each chunk stores a sparse index (`min_ts`, `max_ts`, `services`, `levels`, per-service/level counters) plus an **8192-bit Bloom filter** (`1 KB`), skipping non-matching chunks. Matching chunks run a **zero-allocation `string_view` line pre-filter** before JSON parsing, and wave-based **Top-N early-exit pruning** stops scanning older archives as soon as `limit` matches are guaranteed.
 - **Analytics & Prometheus `/metrics`:** Built-in `GET /api/v1/analytics` (per-service volume, error rate %, top recurring errors) with an Analytics UI panel, plus a native Prometheus `/metrics` endpoint.
-- **Memory-Safe C++20 Design:** Linear `O(N)` zero-regex PII redactor (immune to `std::regex` stack overflow / ReDoS on pathological inputs), bounds-checked standard containers (`-D_GLIBCXX_ASSERTIONS`), ~10 MB RAM idle, and ~37 MB under 110k logs/sec load.
+- **Hot In-Memory Chunk LRU Cache (`--cache-mb`):** Configurable RAM cache (default `256 MB`, scalable to `1024+ MB` for production servers or `0` for tiny VPS) keeps recent decompressed chunks in memory for sub-10ms searches, `| stats` aggregations, and trace lookups with zero disk I/O or Zstd overhead.
+- **Memory-Safe C++20 Design:** Linear `O(N)` zero-regex PII redactor (immune to `std::regex` stack overflow / ReDoS on pathological inputs), bounds-checked standard containers (`-D_GLIBCXX_ASSERTIONS`), ~10 MB RAM idle, and ~37 MB under 110k logs/sec load (plus configurable `--cache-mb` for hot queries).
 - **Zero External Dependencies:** Single statically linked binary (~2.2 MB) with embedded web dashboard.
 - **Query Syntax & Aggregation Pipes:** Supports exact phrases (`"connection refused"`), wildcards (`service:auth-*`), boolean operators (`AND`, `OR`, `NOT`, `!`), and aggregation pipes (`| stats count() by service`, `| top 10 message`). All JSON tokens (including nested fields) are indexed in per-chunk Bloom filters.
 - **Noise Deduplication (Opt-out & Lossless for Errors):** Sliding-window collapsing applies only to untagged `INFO`/`DEBUG` noise (e.g. repeated health checks) with `repeat_count` counters; `WARN`, `ERROR`, `FATAL`, and traced requests (`trace_id`) are never collapsed. Disable completely with `--no-noise-dedup` if exact per-event timestamps for `INFO`/`DEBUG` are required.
@@ -145,6 +146,7 @@ level = "{{ level }}"
 | `--port` | `SIFTLOG_PORT` | `8080` | Listen port |
 | `--data-dir` | `SIFTLOG_DATA_DIR` | `./data` | Storage directory for compressed chunks |
 | `--retention-days` | `SIFTLOG_RETENTION_DAYS` | `0` | Auto-prune chunks older than N days (`0` = disabled) |
+| `--cache-mb` | `SIFTLOG_CACHE_MB` | `256` | Hot in-memory chunk LRU cache budget in MB (`0` = disabled) |
 | `--auth-user` | `SIFTLOG_AUTH_USER` | `""` | HTTP Basic Auth username (empty = open) |
 | `--auth-password` | `SIFTLOG_AUTH_PASSWORD` | `""` | HTTP Basic Auth password |
 | `--no-mask-pii` | `SIFTLOG_MASK_PII` | `enabled` | Disable automatic PII and secret redaction |

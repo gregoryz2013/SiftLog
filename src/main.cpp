@@ -51,6 +51,7 @@ int main(int argc, char* argv[]) {
     std::string replicate_str = get_env("SIFTLOG_REPLICATE_TO", "");
     size_t error_threshold = 10;
     int retention_days = 0;
+    size_t cache_mb = 256;
     std::string auth_user = get_env("SIFTLOG_AUTH_USER", "");
     std::string auth_password = get_env("SIFTLOG_AUTH_PASSWORD", "");
     bool mask_pii = true;
@@ -92,6 +93,11 @@ int main(int argc, char* argv[]) {
         if (!r_env.empty()) retention_days = std::stoi(r_env);
     } catch (...) {}
 
+    try {
+        std::string c_env = get_env("SIFTLOG_CACHE_MB", "");
+        if (!c_env.empty()) cache_mb = std::stoull(c_env);
+    } catch (...) {}
+
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--host" && i + 1 < argc) {
@@ -114,6 +120,8 @@ int main(int argc, char* argv[]) {
             error_threshold = std::stoull(argv[++i]);
         } else if (arg == "--retention-days" && i + 1 < argc) {
             retention_days = std::stoi(argv[++i]);
+        } else if (arg == "--cache-mb" && i + 1 < argc) {
+            cache_mb = std::stoull(argv[++i]);
         } else if (arg == "--auth-user" && i + 1 < argc) {
             auth_user = argv[++i];
         } else if (arg == "--auth-password" && i + 1 < argc) {
@@ -152,6 +160,7 @@ int main(int argc, char* argv[]) {
                       << "  --port <port>                Listen port (default: 8080)\n"
                       << "  --data-dir <path>            Storage directory (default: ./data)\n"
                       << "  --retention-days <days>      Auto-prune log chunks older than N days (default: 0 = disabled)\n"
+                      << "  --cache-mb <mb>              Hot in-memory LRU cache budget in MB (default: 256, 0 = disabled)\n"
                       << "  --auth-user <username>       HTTP Basic Auth username for UI & API (optional)\n"
                       << "  --auth-password <password>   HTTP Basic Auth password for UI & API (optional)\n"
                       << "  --s3-endpoint <url>          S3 endpoint (e.g. storage.yandexcloud.net, s3.amazonaws.com)\n"
@@ -207,7 +216,7 @@ int main(int argc, char* argv[]) {
     bool finops_enabled = noise_dedup && license.has_feature("finops_dedup");
     auto noise_filter = std::make_shared<NoiseFilter>(finops_enabled, noise_window);
     auto rca_engine = std::make_shared<RcaEngine>(60, 3);
-    auto storage = std::make_shared<LogStorage>(data_dir, 20000, std::chrono::milliseconds(2000), retention_days, s3_client, noise_filter, rca_engine);
+    auto storage = std::make_shared<LogStorage>(data_dir, 20000, std::chrono::milliseconds(2000), retention_days, s3_client, noise_filter, rca_engine, cache_mb);
     auto alert_manager = std::make_shared<AlertManager>(tg_token, tg_chat_id, error_threshold, 60, 60, alert_webhook);
     auto pii_masker = std::make_shared<PiiMasker>(mask_pii);
     auto updater = std::make_shared<EnterpriseUpdater>("0.5.0", update_url);
